@@ -354,17 +354,33 @@ public final class SystemModelEngine: ConversationEngine {
         )
         var finalOptions = GenerationOptions()
         finalOptions.maximumResponseTokens = finalCap
+        // Guided generation: the model fills a fixed structure and code writes the Markdown, so it cannot pad a table.
         let final = Self.stageSession(model: model, instructions: DocumentComparison.finalInstructions)
-        var latest = ""
-        for try await snapshot in final.streamResponse(to: prompt, options: finalOptions) {
-            latest = snapshot.content
-            continuation.yield(TurnUpdate(text: latest))
-        }
-        let finalHitLimit = await Self.hitLimit(latest, cap: finalCap, meter: meter)
-        if let note = DocumentComparison.incompleteNote(finalHitLimit: finalHitLimit, limitedNotes: limitedNotes) {
-            continuation.yield(TurnUpdate(text: latest + "\n\n" + note))
-        }
+        let response = try await final.respond(to: prompt, generating: ComparisonResult.self, options: finalOptions)
+        let finalHitLimit = await Self.hitLimit(response.rawContent.jsonString, cap: finalCap, meter: meter)
+        let rendered = DocumentComparison.render(
+            response.content,
+            citationsA: citations(of: request.attachments[0]),
+            citationsB: citations(of: request.attachments[1])
+        )
+        var text = rendered.markdown
+        let notices = [
+            DocumentComparison.incompleteNote(finalHitLimit: finalHitLimit, limitedNotes: limitedNotes),
+            DocumentComparison.removedCitationNote(rendered.removedCitations)
+        ].compactMap { $0 }
+        if !notices.isEmpty { text += "\n\n" + notices.joined(separator: "\n\n") }
+        continuation.yield(TurnUpdate(text: text))
         rebuildBeforeNextTurn = true
+    }
+
+    /// The excerpts of one attached document that were given to the model, by label.
+    private func citations(of attachment: Attachment) -> [String: SourceCitation] {
+        var result: [String: SourceCitation] = [:]
+        for chunk in attachment.chunks {
+            let label = ledger.label(forChunk: chunk.id)
+            if let citation = ledger.givenCitation(for: label) { result[label] = citation }
+        }
+        return result
     }
 
     /// A new session for one comparison stage. It holds only that stage's instructions, so no notes or earlier stages

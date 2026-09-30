@@ -1,10 +1,11 @@
 import Foundation
+import FoundationModels
 
 /// Plans and words the staged comparison of two documents.
 ///
 /// The on-device context is small, so two documents are not placed in one prompt. Instead each document is read in
 /// windows that each fit the context; every window yields short fact notes that keep the excerpt IDs; the two sets of
-/// notes are then compared in a final step that writes the Markdown result. Nothing is cut: a document that would need
+/// notes are then compared in a final step that fills a structured result (guided generation), which code renders as Markdown. Nothing is cut: a document that would need
 /// more than `maxWindowsPerDocument` windows is refused with an explanation.
 public enum DocumentComparison {
     public static let maxWindowsPerDocument = 6
@@ -15,18 +16,20 @@ public enum DocumentComparison {
     public static let maxNotesTokens = 600
     public static let condensedNotesTokens = 500
     public static let overheadTokensPerExcerpt = 20
-    /// Upper bound for the final comparison. A table plus gaps and questions for two sets of notes needs about 1,000
-    /// tokens; the ceiling stops a looping answer long before it fills the whole window.
+    /// Upper bound for the final comparison. A structured result of at most 8 rows, 5 gaps and 5 questions needs well
+    /// under 1,000 tokens; the ceiling stops a looping answer long before it fills the whole window.
     public static let maxFinalResponseTokens = 1_400
     /// Never ask for less than this. If even this does not fit, the model itself reports that the conversation is too long.
     public static let minFinalResponseTokens = 256
     /// Room for the chat framing the model adds around the instructions and the prompt.
     public static let framingTokens = 96
+    /// Room for the schema that guided generation adds to the prompt.
+    public static let schemaTokens = 300
 
     /// The response cap for the final comparison: what is left of the context after the measured instructions and
     /// prompt, bounded by `maxFinalResponseTokens`.
     public static func finalResponseTokens(contextSize: Int, instructionsTokens: Int, promptTokens: Int) -> Int {
-        let room = contextSize - instructionsTokens - promptTokens - framingTokens
+        let room = contextSize - instructionsTokens - promptTokens - framingTokens - schemaTokens
         return min(maxFinalResponseTokens, max(minFinalResponseTokens, room))
     }
 
@@ -107,13 +110,12 @@ public enum DocumentComparison {
     }
 
     public static let finalInstructions = """
-    You compare two documents for a person who is not a specialist. Use only the notes you are given. \
-    Write in English, in this exact structure. First a Markdown table with the columns Topic, Document A and Document B, \
-    with one row for each topic that either document covers. Then a heading "Gaps" with bullets for things only one document states \
-    or that neither answers. Then a heading "Questions to resolve" with bullets. \
-    After every fact, cite the excerpt ID from that document's notes in square brackets, like [S3]. \
+    You compare two documents for a person who is not a specialist. Use only the notes you are given. Write in English. \
+    Fill one table row for each topic that either document covers, such as dates, budget, people, places and owners. \
+    Each cell is one short clause. After every fact, cite the excerpt ID from that document's notes in square brackets, like [S3]. \
     Document A facts may cite only Document A notes, and Document B facts only Document B notes. \
-    Never invent facts or IDs. If something differs, say how. If the documents do not differ on a topic, say they agree.
+    Never invent facts or IDs. If something differs, say how. If the documents do not differ on a topic, say they agree. \
+    Gaps are things only one document states or that neither answers. Questions are what the person should resolve.
     """
 
     public static func finalPrompt(question: String, nameA: String, notesA: String, nameB: String, notesB: String) -> String {
@@ -128,5 +130,96 @@ public enum DocumentComparison {
 
         Task: \(question)
         """
+    }
+
+    // MARK: Structured result
+
+    /// Escapes one table cell: a pipe would end the cell and a line break would end the row.
+    static func cell(_ text: String) -> String {
+        let flat = text.split(whereSeparator: \.isNewline).joined(separator: " ")
+        let collapsed = flat.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+        let escaped = collapsed.replacingOccurrences(of: "|", with: "\\|")
+        return escaped.isEmpty ? "—" : escaped
+    }
+
+    /// Bullet text: one line, no leading list marker of its own.
+    static func bullet(_ text: String) -> String {
+        let flat = text.split(whereSeparator: \.isNewline).joined(separator: " ")
+        return flat.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+    }
+
+    /// The Markdown for a structured comparison: the table, then "Gaps", then "Questions to resolve".
+    /// Document A cells keep only citations of Document A's excerpts, and Document B cells only those of Document B.
+    /// Citations that do not belong are removed from the cell and listed in `removedCitations`.
+    public static func render(
+        _ result: ComparisonResult,
+        citationsA: [String: SourceCitation],
+        citationsB: [String: SourceCitation]
+    ) -> (markdown: String, removedCitations: [String]) {
+        var removed: [String] = []
+        func checked(_ text: String, against citations: [String: SourceCitation]) -> String {
+            let grounded = CitationValidator.ground(text, given: citations, consulted: 0)
+            for id in grounded.removedCitations where !removed.contains(id) { removed.append(id) }
+            return grounded.text
+        }
+
+        var lines: [String] = []
+        let rows = result.rows.filter { !$0.topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !rows.isEmpty {
+            lines.append("| Topic | Document A | Document B |")
+            lines.append("| --- | --- | --- |")
+            for row in rows {
+                lines.append("| \(cell(row.topic)) | \(cell(checked(row.documentA, against: citationsA))) | \(cell(checked(row.documentB, against: citationsB))) |")
+            }
+        }
+        for (title, items) in [("Gaps", result.gaps), ("Questions to resolve", result.questions)] {
+            let kept = items.map(bullet).filter { !$0.isEmpty }
+            guard !kept.isEmpty else { continue }
+            if !lines.isEmpty { lines.append("") }
+            lines.append("### \(title)")
+            lines.append("")
+            lines.append(contentsOf: kept.map { "- \($0)" })
+        }
+        return (lines.joined(separator: "\n"), removed)
+    }
+
+    /// A visible note for citations that did not match the document they were written for, or nil when none were removed.
+    public static func removedCitationNote(_ ids: [String]) -> String? {
+        guard !ids.isEmpty else { return nil }
+        return "*Citations that did not match the document they were written for were removed: \(ids.joined(separator: ", ")).*"
+    }
+}
+
+/// One row of the comparison table. Every field is one short clause, which keeps the table readable and bounded.
+@Generable(description: "One topic that the two documents cover")
+public struct ComparisonRow: Equatable, Sendable {
+    @Guide(description: "The topic, two to four words, such as Launch date or Budget")
+    public var topic: String
+    @Guide(description: "What Document A states about the topic, one clause under 20 words, ending with its excerpt IDs like [S1]")
+    public var documentA: String
+    @Guide(description: "What Document B states about the topic, one clause under 20 words, ending with its excerpt IDs like [S7]")
+    public var documentB: String
+
+    public init(topic: String, documentA: String, documentB: String) {
+        self.topic = topic
+        self.documentA = documentA
+        self.documentB = documentB
+    }
+}
+
+/// The structured result of the final comparison stage. Code renders it as Markdown.
+@Generable(description: "A comparison of two documents")
+public struct ComparisonResult: Equatable, Sendable {
+    @Guide(description: "One row per topic that either document covers, most important first", .maximumCount(8))
+    public var rows: [ComparisonRow]
+    @Guide(description: "Things only one document states or that neither answers, each under 20 words with excerpt IDs", .maximumCount(5))
+    public var gaps: [String]
+    @Guide(description: "Questions the reader should resolve, each under 20 words", .maximumCount(5))
+    public var questions: [String]
+
+    public init(rows: [ComparisonRow], gaps: [String], questions: [String]) {
+        self.rows = rows
+        self.gaps = gaps
+        self.questions = questions
     }
 }

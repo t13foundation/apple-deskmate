@@ -11,12 +11,12 @@ import FoundationModels
     }
 
     @Test func finalComparisonCapIsWhatFitsAfterInstructionsAndPrompt() {
-        // Room: 4096 - 300 - 1500 - 96 = 2200, bounded by the ceiling.
+        // Room: 4096 - 300 - 1500 - 96 - 300 = 1900, bounded by the ceiling.
         #expect(DocumentComparison.finalResponseTokens(contextSize: 4096, instructionsTokens: 300, promptTokens: 1500) == DocumentComparison.maxFinalResponseTokens)
-        // A large prompt leaves less: 4096 - 300 - 3000 - 96 = 700.
+        // A large prompt leaves less: 4096 - 300 - 3000 - 96 - 300 = 400.
         let cap = DocumentComparison.finalResponseTokens(contextSize: 4096, instructionsTokens: 300, promptTokens: 3000)
-        #expect(cap == 700)
-        #expect(300 + 3000 + cap + DocumentComparison.framingTokens <= 4096)
+        #expect(cap == 400)
+        #expect(300 + 3000 + cap + DocumentComparison.framingTokens + DocumentComparison.schemaTokens <= 4096)
         // Never below the minimum, so the model reports "too long" itself rather than getting a zero cap.
         #expect(DocumentComparison.finalResponseTokens(contextSize: 4096, instructionsTokens: 300, promptTokens: 3900) == DocumentComparison.minFinalResponseTokens)
     }
