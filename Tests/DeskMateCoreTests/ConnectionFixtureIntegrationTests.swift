@@ -87,13 +87,54 @@ private func withFixture<T>(
             let output = try await manager.callEnabledTool(
                 connectionID: connection.id, toolName: "get_project_status", arguments: ["project": .string("Project Lumen")]
             ).get()
-            #expect(output.text.contains("14 October"))
-            #expect(output.text.contains("Dana Whitfield"))
+            // The overlap matches Fixtures/Library (plan version 2); the live-status facts exist only in the service.
+            #expect(output.text.contains("Launch target: 28 July 2026"))
+            #expect(output.text.contains("Status: At risk"))
+            #expect(output.text.contains("Status date: 14 July 2026"))
+            #expect(output.text.contains("Reported by: Priya Raman (project lead)"))
+            #expect(output.text.contains("Open risks: 3"))
+            #expect(output.text.contains("Next milestone: Go/no-go review on 21 July 2026"))
+            #expect(!output.text.contains("14 October"))
+            #expect(!output.text.contains("Dana Whitfield"))
             let calls = log.all.filter { $0.contains("rpc=tools/call") }
             #expect(calls.count == 1)
             #expect(calls[0].contains("tool=get_project_status"))
             #expect(calls[0].contains("Project Lumen"))
             #expect(!log.all.contains { $0.contains("search_project_notes") && $0.contains("tools/call") })
+        }
+    }
+
+    @Test func statusAndNotesAgreeWithTheCurrentPlanFileAndAddFactsOnlyTheServiceHas() async throws {
+        // Fixtures/Library is canonical. Read the current plan (version 2) and check the overlap instead of copying values.
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let plan = try String(contentsOf: repository.appendingPathComponent("Fixtures/Library/lumen-plan-v2.md"), encoding: .utf8)
+        #expect(plan.contains("Launch: 28 July 2026"))
+        #expect(plan.contains("EUR 52,500"))
+        #expect(plan.contains("Project lead: Priya Raman"))
+        #expect(plan.contains("owned by Nadia Okafor"))
+
+        try await withFixture { manager, address, _ in
+            let connection = try manager.addConnection(name: "Lumen", address: address, token: nil).get()
+            await manager.connect(connection.id)
+            #expect(manager.setTool("get_project_status", enabled: true, in: connection.id) == .changed)
+            #expect(manager.setTool("search_project_notes", enabled: true, in: connection.id) == .changed)
+
+            let status = try await manager.callEnabledTool(
+                connectionID: connection.id, toolName: "get_project_status", arguments: ["project": .string("Project Lumen")]
+            ).get().text
+            #expect(status.contains("28 July 2026"))
+            #expect(status.contains("EUR 52,500"))
+            #expect(!status.contains("48,000") && !status.contains("14 June"), "version 1 values must not appear")
+
+            let notes = try await manager.callEnabledTool(
+                connectionID: connection.id, toolName: "search_project_notes",
+                arguments: ["query": .string("Is the launch date in our plan still on track?"), "limit": .integer(3)]
+            ).get().text
+            #expect(notes.contains("N-103"), "the shipment slip that puts the date at risk is the best match")
+            #expect(notes.contains("at risk"))
+            #expect(notes.contains("- N-"), "each note carries its ID")
+            #expect(notes.count < 1500, "responses stay small")
+            #expect(!notes.contains("Dana") && !notes.contains("14 October"))
         }
     }
 

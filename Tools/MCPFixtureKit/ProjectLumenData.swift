@@ -6,32 +6,41 @@ import MCP
 enum ProjectLumen {
     static let name = "Project Lumen"
 
+    /// Live status as of `statusDate`. Everything that overlaps `Fixtures/Library` (launch date, lead, budget, offices,
+    /// vendor, privacy reviewer, retention) matches the current plan, version 2. The live-status facts (status, risk
+    /// count, latest decision, next milestone, spend, shipment dates, reporter) exist only in this service.
     static let statusText = """
-        Project Lumen (fictional demo project)
-        Phase: Beta hardening
-        Launch date: 14 October
-        Owner: Dana Whitfield
-        Budget: $480,000 approved, $312,500 spent (65%)
-        Open risks:
-        1. Supplier delay for display panels (medium)
-        2. Two open accessibility findings (low)
-        3. Launch-week support staffing not confirmed (high)
+        Project Lumen (fictional demo project) - live status
+        Status: At risk (was On track until 8 July 2026)
+        Status date: 14 July 2026
+        Reported by: Priya Raman (project lead)
+        Launch target: 28 July 2026 (plan version 2)
+        Next milestone: Go/no-go review on 21 July 2026
+        Latest decision (13 July 2026): Keep the 28 July launch date and pay for express shipping of the Porto sensor batch.
+        Open risks: 3
+        1. Porto sensor batch now due 17 July, which leaves no buffer before launch (high)
+        2. Gateway encryption not yet enabled in Porto (medium)
+        3. Porto launch-week on-site support not yet named (low)
+        Budget spent so far: EUR 31,200 of EUR 52,500 approved
         """
 
     struct Note {
+        let id: String
         let date: String
         let text: String
     }
 
     static let notes: [Note] = [
-        Note(date: "2 September", text: "Dana Whitfield confirmed the launch date of 14 October after the steering review."),
-        Note(date: "5 September", text: "Budget check: $312,500 spent of $480,000. Display panel supplier quoted a two-week delay."),
-        Note(date: "9 September", text: "Accessibility review found two open findings: focus order in the setup flow and a low-contrast label."),
-        Note(date: "12 September", text: "Support staffing for launch week is not confirmed. Dana asked operations for a named on-call list."),
-        Note(date: "16 September", text: "Beta feedback: testers liked the quick-open panel and asked for clearer error messages."),
-        Note(date: "19 September", text: "Risk review: staffing is the highest risk. Supplier delay is medium and has a fallback panel."),
-        Note(date: "23 September", text: "Launch checklist drafted. Owner for each item is Dana Whitfield unless noted."),
-        Note(date: "26 September", text: "Press briefing scheduled for 7 October. Budget for launch events is $18,000."),
+        Note(id: "N-101", date: "18 June 2026", text: "The third-floor pilot in Lisbon is running. No sensor dropouts in the first week."),
+        Note(id: "N-102", date: "26 June 2026", text: "Brightway delivered the 80-sensor Lisbon batch. The 40-sensor Porto batch was due 10 July."),
+        Note(id: "N-103", date: "8 July 2026", text: "Brightway reported that the Porto batch slipped to 17 July. Installation needs five working days, so the 28 July launch date is at risk and no longer on track without action. Status changed from On track to At risk."),
+        Note(id: "N-104", date: "10 July 2026", text: "Privacy review conditions: gateway encryption is on in Lisbon and pending in Porto. The 90-day retention setting is configured. Reviewer: Nadia Okafor."),
+        Note(id: "N-105", date: "13 July 2026", text: "Decision by Priya Raman: keep the 28 July launch date and pay about EUR 900 for express shipping of the Porto batch, taken from the contingency reserve. Go/no-go review on 21 July 2026."),
+        Note(id: "N-106", date: "14 July 2026", text: "Budget check by Ana Costa: EUR 31,200 spent of EUR 52,500 approved. Budget stays within plan version 2."),
+    ]
+
+    private static let ignoredWords: Set<String> = [
+        "the", "our", "and", "for", "are", "was", "were", "with", "that", "this", "what", "when", "who", "how", "does", "still", "from", "have", "has",
     ]
 
     static func isLumen(_ query: String) -> Bool {
@@ -40,13 +49,17 @@ enum ProjectLumen {
     }
 
     static func search(_ query: String, limit: Int) -> [Note] {
-        let words = query.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { $0.count >= 3 }
+        let words = query.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+            .filter { $0.count >= 3 && !ignoredWords.contains($0) }
         guard !words.isEmpty else { return [] }
-        let scored = notes.map { note -> (Note, Int) in
-            let haystack = (note.text + " " + note.date).lowercased()
-            return (note, words.filter { haystack.contains($0) }.count)
+        let scored = notes.enumerated().map { index, note -> (note: Note, score: Int, index: Int) in
+            let haystack = (note.id + " " + note.text + " " + note.date).lowercased()
+            return (note, words.filter { haystack.contains($0) }.count, index)
         }
-        return scored.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }.prefix(limit).map(\.0)
+        // Best score first; newer notes win ties.
+        return scored.filter { $0.score > 0 }
+            .sorted { ($0.score, $0.index) > ($1.score, $1.index) }
+            .prefix(limit).map(\.note)
     }
 }
 
@@ -62,7 +75,7 @@ enum FixtureTools {
             Tool(
                 name: statusToolName,
                 title: "Get project status",
-                description: "Returns the launch date, owner, budget and open risks for a project. Demo data only; the only project is “Project Lumen”." + padding,
+                description: "Returns the live status of a project: current status and date, launch target, next milestone, latest decision, open risks and spend. Demo data only; the only project is “Project Lumen”." + padding,
                 inputSchema: .object([
                     "type": "object",
                     "properties": .object([
@@ -75,11 +88,11 @@ enum FixtureTools {
             Tool(
                 name: searchToolName,
                 title: "Search project notes",
-                description: "Searches the project notes for words and returns the best matching notes. Demo data only.",
+                description: "Searches the dated project notes for words and returns the best matching notes with their IDs. Demo data only.",
                 inputSchema: .object([
                     "type": "object",
                     "properties": .object([
-                        "query": .object(["type": "string", "description": "Words to look for, for example budget or staffing."]),
+                        "query": .object(["type": "string", "description": "Words to look for, for example shipment, budget or decision."]),
                         "limit": .object([
                             "type": "integer", "minimum": 1, "maximum": 10,
                             "description": "How many notes to return (1 to 10). Defaults to 3.",
@@ -99,7 +112,7 @@ enum FixtureTools {
                 inputSchema: .object([
                     "type": "object",
                     "properties": .object([
-                        "phase": .object(["type": "string", "enum": .array(["Design", "Build", "Beta", "Launch"]), "description": "Which phase to list."])
+                        "phase": .object(["type": "string", "enum": .array(["Build", "Pilot", "Launch"]), "description": "Which phase to list."])
                     ]),
                 ]),
                 annotations: .init(readOnlyHint: true)
@@ -136,7 +149,7 @@ enum FixtureTools {
                 inputSchema: .object([
                     "type": "object",
                     "properties": .object([
-                        "team": .object(["type": "string", "enum": .array(["Design", "Engineering", "Operations"])])
+                        "team": .object(["type": "string", "enum": .array(["Engineering", "Finance", "Operations", "Privacy"])])
                     ]),
                     "required": .array(["team"]),
                 ]),
@@ -205,16 +218,16 @@ enum FixtureTools {
             }
             let found = ProjectLumen.search(query, limit: limit)
             guard !found.isEmpty else { return reply("No notes matched.") }
-            let lines = found.map { "- \($0.date): \($0.text)" }.joined(separator: "\n")
+            let lines = found.map { "- \($0.id) (\($0.date)): \($0.text)" }.joined(separator: "\n")
             return reply("Matching notes (demo data):\n" + lines + pad)
 
         case "list_milestones":
             let phase = arguments["phase"]?.stringValue
             let all = [
-                ("Design", "Design freeze: 3 June"),
-                ("Build", "Feature complete: 29 July"),
-                ("Beta", "Beta exit: 30 September"),
-                ("Launch", "Launch: 14 October"),
+                ("Build", "Prototype firmware: 15 May 2026"),
+                ("Pilot", "Pilot on the third floor in Lisbon: June 2026"),
+                ("Launch", "Go/no-go review: 21 July 2026"),
+                ("Launch", "Launch: 28 July 2026"),
             ]
             let lines = all.filter { phase == nil || $0.0 == phase }.map { "- \($0.1)" }
             return reply("Milestones (demo data):\n" + lines.joined(separator: "\n"))
@@ -222,19 +235,19 @@ enum FixtureTools {
         case "get_risk_detail":
             guard case .int(let id)? = arguments["risk_id"], (1...3).contains(id) else { return failure("“risk_id” must be 1, 2 or 3.") }
             let risks = [
-                "Supplier delay for display panels: medium. Fallback panel qualified.",
-                "Two open accessibility findings: low. Fixes scheduled this sprint.",
-                "Launch-week support staffing not confirmed: high. Owner: Dana Whitfield.",
+                "Porto sensor batch now due 17 July: high. Express shipping approved on 13 July. Owner: Jonas Weber.",
+                "Gateway encryption not yet enabled in Porto: medium. Required by the privacy review. Owner: Tomas Berg.",
+                "Porto launch-week on-site support not yet named: low. Owner: Jonas Weber.",
             ]
             return reply("Risk \(id): \(risks[id - 1])")
 
         case "budget_summary":
-            var text = "Approved $480,000. Spent $312,500 (65%)."
-            if arguments["include_forecast"]?.boolValue == true { text += " Forecast at launch: $455,000." }
+            var text = "Approved EUR 52,500 (plan version 2). Spent EUR 31,200 (59%)."
+            if arguments["include_forecast"]?.boolValue == true { text += " Forecast at launch: EUR 50,100, including about EUR 900 for express shipping." }
             return reply(text)
 
         case "team_contacts":
-            let contacts = ["Design": "Priya Raman", "Engineering": "Tomas Lindqvist", "Operations": "Mei Okafor"]
+            let contacts = ["Engineering": "Tomas Berg", "Finance": "Ana Costa", "Operations": "Jonas Weber", "Privacy": "Nadia Okafor"]
             guard let team = arguments["team"]?.stringValue, let contact = contacts[team] else { return failure("Unknown team.") }
             return reply("\(team) contact (fictional): \(contact)")
 
