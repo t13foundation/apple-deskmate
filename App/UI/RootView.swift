@@ -51,8 +51,13 @@ struct RootView: View {
                 Button {
                     startNewChat()
                 } label: {
+                    // Named and tinted so the action stands out; Send stays the one filled accent control.
                     Label("New chat", systemImage: "square.and.pencil")
+                        .labelStyle(.titleAndIcon)
+                        .fontWeight(.medium)
                 }
+                .buttonStyle(.bordered)
+                .tint(Color.dmBrandText)
                 // ⌘N itself is the File > New Chat command, which does the same thing.
                 .help("Start a new chat (⌘N)")
                 .accessibilityLabel("New chat")
@@ -112,7 +117,7 @@ struct SidebarView: View {
     var body: some View {
         List(selection: selection) {
             Section {
-                Label("New chat", systemImage: "square.and.pencil")
+                newChatRow
                     .tag(Item.newChat)
                     .accessibilityLabel("New chat")
                     .accessibilityHint("Clears the conversation and starts fresh")
@@ -137,6 +142,21 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+    }
+
+    /// The action row: a brand-text icon and a medium-weight label, so it reads as an action rather than a destination.
+    /// While the row is selected the system selection colours apply, which keep it legible on the highlight.
+    @ViewBuilder private var newChatRow: some View {
+        let isSelected = selection.wrappedValue == .newChat
+        Label {
+            Text("New chat").fontWeight(.medium)
+        } icon: {
+            if isSelected {
+                Image(systemName: "square.and.pencil")
+            } else {
+                Image(systemName: "square.and.pencil").foregroundStyle(Color.dmBrandText)
+            }
+        }
     }
 
     private var selection: Binding<Item?> {
