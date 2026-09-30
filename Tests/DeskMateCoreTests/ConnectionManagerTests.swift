@@ -238,6 +238,123 @@ private struct Harness {
         #expect(harness.config.current[0].enabledTools.count == 5, "the choice is saved")
     }
 
+    // MARK: Tool limit is global (spec section 7)
+
+    private func addSecondConnectionAndConnect(_ harness: Harness) async throws -> UUID {
+        let second = try harness.manager.addConnection(name: "Orbit", address: "http://127.0.0.1:8766/mcp", token: nil).get()
+        await harness.manager.connect(second.id)
+        return second.id
+    }
+
+    @Test func theToolLimitCountsAcrossAllConnections() async throws {
+        let harness = Harness(tools: (1...6).map { makeTool("tool_\($0)") })
+        let first = try await harness.addAndConnect()
+        let second = try await addSecondConnectionAndConnect(harness)
+
+        for index in 1...3 { #expect(harness.manager.setTool("tool_\(index)", enabled: true, in: first) == .changed) }
+        #expect(harness.manager.setTool("tool_1", enabled: true, in: second) == .changed)
+        #expect(harness.manager.setTool("tool_2", enabled: true, in: second) == .changed)
+        #expect(harness.manager.totalEnabledToolCount == 5)
+
+        // 3 + 3 would be 6: the third tool on the second connection is refused although it has room on its own.
+        let refused = harness.manager.setTool("tool_3", enabled: true, in: second)
+        #expect(refused == .limitReached(5))
+        #expect(refused.message == "You can turn on up to 5 tools in total across all connections. Turn one off to turn on another.")
+        #expect(harness.manager.enabledToolCount(of: second) == 2)
+        #expect(harness.manager.totalEnabledToolCount == 5)
+        #expect(harness.config.current.map(\.enabledTools.count) == [3, 2], "the refused choice is not saved")
+    }
+
+    @Test func turningAToolOffFreesASlotAnywhere() async throws {
+        let harness = Harness(tools: (1...6).map { makeTool("tool_\($0)") })
+        let first = try await harness.addAndConnect()
+        let second = try await addSecondConnectionAndConnect(harness)
+        for index in 1...4 { harness.manager.setTool("tool_\(index)", enabled: true, in: first) }
+        harness.manager.setTool("tool_1", enabled: true, in: second)
+        #expect(harness.manager.setTool("tool_2", enabled: true, in: second) == .limitReached(5))
+
+        #expect(harness.manager.setTool("tool_4", enabled: false, in: first) == .changed)
+        #expect(harness.manager.setTool("tool_2", enabled: true, in: second) == .changed)
+        #expect(harness.manager.totalEnabledToolCount == 5)
+    }
+
+    @Test func deletingAConnectionFreesItsSlots() async throws {
+        let harness = Harness(tools: (1...6).map { makeTool("tool_\($0)") })
+        let first = try await harness.addAndConnect()
+        let second = try await addSecondConnectionAndConnect(harness)
+        for index in 1...3 { harness.manager.setTool("tool_\(index)", enabled: true, in: first) }
+        for index in 1...2 { harness.manager.setTool("tool_\(index)", enabled: true, in: second) }
+        #expect(harness.manager.setTool("tool_4", enabled: true, in: second) == .limitReached(5))
+
+        _ = await harness.manager.deleteConnection(first)
+
+        #expect(harness.manager.totalEnabledToolCount == 2)
+        #expect(harness.manager.setTool("tool_4", enabled: true, in: second) == .changed)
+        #expect(harness.manager.setTool("tool_5", enabled: true, in: second) == .changed)
+        #expect(harness.manager.setTool("tool_6", enabled: true, in: second) == .changed)
+        #expect(harness.manager.setTool("tool_3", enabled: true, in: second) == .limitReached(5))
+    }
+
+    @Test func toolsOfATurnedOffConnectionStillCountBecauseTheyReturnWhenItIsTurnedOn() async throws {
+        let harness = Harness(tools: (1...6).map { makeTool("tool_\($0)") })
+        let first = try await harness.addAndConnect()
+        let second = try await addSecondConnectionAndConnect(harness)
+        for index in 1...3 { harness.manager.setTool("tool_\(index)", enabled: true, in: first) }
+        await harness.manager.setConnectionEnabled(first, false)
+
+        #expect(harness.manager.totalEnabledToolCount == 3)
+        harness.manager.setTool("tool_1", enabled: true, in: second)
+        harness.manager.setTool("tool_2", enabled: true, in: second)
+        #expect(harness.manager.setTool("tool_3", enabled: true, in: second) == .limitReached(5))
+    }
+
+    @Test func restoringOverLimitSavedDataKeepsTheFirstFiveInSavedOrderAndSaysSo() throws {
+        func connection(_ name: String, port: Int, tools: [String]) throws -> MCPConnection {
+            MCPConnection(
+                name: name,
+                endpoint: try ConnectionEndpoint.validate("http://127.0.0.1:\(port)/mcp").get(),
+                auth: .none,
+                enabledTools: tools.map { EnabledToolRecord(name: $0, fingerprint: "fp-\($0)") }
+            )
+        }
+        let saved = [
+            try connection("Lumen", port: 8765, tools: ["a", "b", "c"]),
+            try connection("Orbit", port: 8766, tools: ["d", "e", "f", "g"]),
+            try connection("Third", port: 8767, tools: ["h"]),
+        ]
+        let config = InMemoryConnectionConfigStore(saved)
+        let manager = ConnectionManager(configStore: config, secretStore: InMemorySecretStore(), sessionFactory: FakeFactory(tools: []))
+
+        manager.restore()
+
+        #expect(manager.connections.map { $0.enabledTools.map(\.name) } == [["a", "b", "c"], ["d", "e"], []])
+        #expect(manager.totalEnabledToolCount == 5)
+        #expect(config.current.map { $0.enabledTools.map(\.name) } == [["a", "b", "c"], ["d", "e"], []], "the trimmed choice is saved")
+        let notice = try #require(manager.toolLimitNotice)
+        #expect(notice.contains("“f” (Orbit)") && notice.contains("“g” (Orbit)") && notice.contains("“h” (Third)"))
+        #expect(!notice.contains("“e”") && !notice.contains("“a”"))
+
+        manager.dismissToolLimitNotice()
+        #expect(manager.toolLimitNotice == nil)
+    }
+
+    @Test func restoringWithinTheLimitChangesAndSaysNothing() throws {
+        let saved = try MCPConnection(
+            name: "Lumen",
+            endpoint: ConnectionEndpoint.validate("http://127.0.0.1:8765/mcp").get(),
+            auth: .none,
+            enabledTools: (1...5).map { EnabledToolRecord(name: "t\($0)", fingerprint: "fp") }
+        )
+        let manager = ConnectionManager(
+            configStore: InMemoryConnectionConfigStore([saved]),
+            secretStore: InMemorySecretStore(),
+            sessionFactory: FakeFactory(tools: [])
+        )
+        manager.restore()
+        #expect(manager.totalEnabledToolCount == 5)
+        #expect(manager.toolLimitNotice == nil)
+    }
+
     @Test func callsFailClosedAndNeverReachTheServer() async throws {
         let harness = Harness(tools: [makeTool("allowed"), makeTool("not_enabled")])
         let id = try await harness.addAndConnect()

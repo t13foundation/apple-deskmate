@@ -87,7 +87,7 @@ public struct FileConnectionConfigStore: ConnectionConfigStore {
     private static func bounded(_ connection: MCPConnection) -> MCPConnection {
         var result = connection
         result.name = MCPConnection.cleanedName(connection.name)
-        result.enabledTools = Array(connection.enabledTools.prefix(ConnectionLimits().maxEnabledTools))
+        // The tool cap is global, so ConnectionManager.restore applies it (and tells the user) across all connections.
         return result
     }
 }

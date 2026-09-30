@@ -205,7 +205,7 @@ for name in candidates {
     let outcome = manager.setTool(name, enabled: true, in: id)
     line("   enable \(name): \(outcome == .changed ? "enabled" : outcome.message ?? "refused")")
 }
-line("   Enabled \(manager.enabledToolCount(of: id)) of at most \(manager.maxEnabledTools)")
+line("   Enabled \(manager.enabledToolCount(of: id)) here; \(manager.totalEnabledToolCount) of at most \(manager.maxEnabledTools) in total across all connections")
 for tool in manager.tools(of: id) where !tool.isEnableable && plan.enable == nil {
     line("   \(tool.name): \(manager.setTool(tool.name, enabled: true, in: id).message ?? "?")")
 }

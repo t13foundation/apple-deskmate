@@ -22,21 +22,22 @@ struct ToolsSection: View {
 
     var body: some View {
         let tools = manager.tools(of: connection.id)
-        let enabledCount = manager.enabledToolCount(of: connection.id)
+        let totalCount = manager.totalEnabledToolCount
+        let hereCount = manager.enabledToolCount(of: connection.id)
         let limit = manager.maxEnabledTools
-        let atLimit = enabledCount >= limit
+        let atLimit = totalCount >= limit
 
         VStack(alignment: .leading, spacing: DS.Spacing.s) {
             HStack(alignment: .firstTextBaseline, spacing: DS.Spacing.s) {
                 Text("Tools")
                     .font(.dmSection)
                     .accessibilityAddTraits(.isHeader)
-                DMBadge(text: "\(enabledCount) of \(limit) turned on", tint: atLimit ? .dmWarning : .dmAccent)
-                    .accessibilityLabel("\(enabledCount) of \(limit) tools turned on")
+                DMBadge(text: "\(totalCount) of \(limit) tools on across all connections", tint: atLimit ? .dmWarning : .dmAccent)
+                    .accessibilityLabel("\(totalCount) of \(limit) tools turned on across all connections, \(hereCount) in \(connection.name)")
                 Spacer(minLength: 0)
             }
 
-            Text("Turn on the tools the assistant may use, up to \(limit). Names and descriptions come from the service and DeskMate cannot verify them. Tools you leave off are never used.")
+            Text("Turn on the tools the assistant may use. You can have up to \(limit) on in total across all connections, which keeps the assistant focused. Names and descriptions come from the service and DeskMate cannot verify them. Tools you leave off are never used.")
                 .font(.dmCaption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -45,8 +46,10 @@ struct ToolsSection: View {
                 DMNotice(
                     symbol: "info.circle",
                     tint: .dmAccent,
-                    title: "\(limit) tools are turned on, the most allowed",
-                    message: "Turn one off to choose another."
+                    title: "\(limit) tools are turned on across all connections, the most allowed",
+                    message: hereCount == totalCount
+                        ? "Turn one off to choose another."
+                        : "Turn one off, here or in another connection, to choose another."
                 )
             }
             if let message {
@@ -217,13 +220,13 @@ struct ToolRow: View {
 
     private var helpText: String {
         if !tool.isEnableable { return "This tool’s inputs use a format DeskMate cannot check." }
-        if !isOn && atLimit { return "You can turn on up to \(limit) tools. Turn one off first." }
+        if !isOn && atLimit { return "You can turn on up to \(limit) tools in total across all connections. Turn one off first." }
         return isOn ? "Turn this tool off" : "Turn this tool on"
     }
 
     private var accessibilityHint: String {
         if !tool.isEnableable { return "Unavailable. DeskMate cannot check this tool’s inputs." }
-        if !isOn && atLimit { return "Unavailable. The limit of \(limit) tools is reached." }
+        if !isOn && atLimit { return "Unavailable. The limit of \(limit) tools across all connections is reached." }
         return ""
     }
 }

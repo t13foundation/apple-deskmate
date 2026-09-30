@@ -134,6 +134,14 @@ struct ConnectionsView: View {
         if let notice = manager.storageNotice {
             DMNotice(symbol: "exclamationmark.triangle", tint: .dmWarning, title: notice)
         }
+        if let notice = manager.toolLimitNotice {
+            DMNotice(
+                symbol: "exclamationmark.circle",
+                tint: .dmWarning,
+                title: notice,
+                onDismiss: { manager.dismissToolLimitNotice() }
+            )
+        }
     }
 
     private var connectionList: some View {
@@ -160,7 +168,7 @@ struct ConnectionsView: View {
     private var footnote: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
             Text("Testing sends only the start-up handshake and a request for the tool list. No file or chat text is sent.")
-            Text("DeskMate does not follow redirects, start programs or look for services on its own. Up to \(ConnectionManager.maxConnections) connections and \(manager.maxEnabledTools) tools turned on per connection. Tokens stay in your Keychain.")
+            Text("DeskMate does not follow redirects, start programs or look for services on its own. Up to \(ConnectionManager.maxConnections) connections and \(manager.maxEnabledTools) tools turned on in total across all connections. Tokens stay in your Keychain.")
         }
         .font(.dmCaption)
         .foregroundStyle(.secondary)

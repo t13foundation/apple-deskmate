@@ -4,7 +4,8 @@ import MCP
 
 /// Hard limits that keep a connection bounded. Everything a server can influence is capped here.
 public struct ConnectionLimits: Sendable, Equatable {
-    /// Tools the user may enable per connection.
+    /// Tools the user may have turned on in total across all connections (spec section 7), so the tool list never
+    /// crowds the model's context. Selections on a turned-off connection still count: they return when it is turned on.
     public var maxEnabledTools = 5
     /// Tools accepted from one server listing; the rest are ignored with a notice.
     public var maxListedTools = 64

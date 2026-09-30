@@ -36,7 +36,7 @@ public enum ToolEnableOutcome: Sendable, Equatable {
         switch self {
         case .changed: nil
         case .limitReached(let limit):
-            "You can enable up to \(limit) tools per connection. Turn one off to enable another."
+            "You can turn on up to \(limit) tools in total across all connections. Turn one off to turn on another."
         case .unsupported: "This tool’s inputs use a format DeskMate cannot check, so it cannot be enabled."
         case .notAvailable: "Connect first so DeskMate can see the tool as the service describes it now."
         }
@@ -78,6 +78,8 @@ public final class ConnectionManager {
     public private(set) var notices: [UUID: [String]] = [:]
     /// Set when saved connections could not be read or a change could not be saved.
     public private(set) var storageNotice: String?
+    /// Set when saved settings had more tools turned on than the overall limit allows and some were turned off.
+    public private(set) var toolLimitNotice: String?
 
     @ObservationIgnored private let configStore: any ConnectionConfigStore
     @ObservationIgnored private let secretStore: any ConnectionSecretStore
@@ -132,6 +134,38 @@ public final class ConnectionManager {
             storageNotice = "Saved connections could not be read. Nothing was changed on disk."
         }
         statuses = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, .disconnected) })
+        toolLimitNotice = nil
+        applyToolLimitToRestoredConnections()
+    }
+
+    public func dismissToolLimitNotice() {
+        toolLimitNotice = nil
+    }
+
+    /// Enforces the overall tool limit on saved data. Order is deterministic: connections in saved order (the order
+    /// shown in the list), tools in the order they were turned on. The first `maxEnabledTools` stay on, the rest are
+    /// turned off, the result is saved, and the notice says exactly what was turned off.
+    private func applyToolLimitToRestoredConnections() {
+        var remaining = limits.maxEnabledTools
+        var turnedOff: [String] = []
+        for index in connections.indices {
+            let records = connections[index].enabledTools
+            guard records.count > remaining else {
+                remaining -= records.count
+                continue
+            }
+            let connectionName = connections[index].name
+            connections[index].enabledTools = Array(records.prefix(remaining))
+            for record in records.dropFirst(remaining) {
+                turnedOff.append("“\(PlainText.sanitizeLine(record.name, limit: 40))” (\(connectionName))")
+            }
+            remaining = 0
+        }
+        guard !turnedOff.isEmpty else { return }
+        let shown = turnedOff.prefix(5).joined(separator: ", ") + (turnedOff.count > 5 ? " and \(turnedOff.count - 5) more" : "")
+        toolLimitNotice =
+            "Your saved settings had more than \(limits.maxEnabledTools) tools turned on. DeskMate allows \(limits.maxEnabledTools) in total across all connections, so it kept the first \(limits.maxEnabledTools) and turned off \(shown). Turn tools on again after turning others off."
+        _ = persist()
     }
 
     // MARK: Lookup
@@ -156,6 +190,12 @@ public final class ConnectionManager {
         connection(id)?.enabledTools.count ?? 0
     }
 
+    /// Tools turned on across all connections, including connections that are turned off (their choices are kept).
+    public var totalEnabledToolCount: Int {
+        connections.reduce(0) { $0 + $1.enabledTools.count }
+    }
+
+    /// The limit is global, not per connection.
     public var maxEnabledTools: Int { limits.maxEnabledTools }
 
     /// Tools the assistant may offer right now. Empty until a connection is connected.
@@ -458,7 +498,7 @@ public final class ConnectionManager {
         guard tool.isEnableable else { return .unsupported }
         if connections[index].enabledTools.contains(where: { $0.name == name }) {
             connections[index].enabledTools.removeAll { $0.name == name }
-        } else if connections[index].enabledTools.count >= limits.maxEnabledTools {
+        } else if totalEnabledToolCount >= limits.maxEnabledTools {
             return .limitReached(limits.maxEnabledTools)
         }
         connections[index].enabledTools.append(EnabledToolRecord(name: name, fingerprint: tool.fingerprint))
@@ -486,7 +526,7 @@ public final class ConnectionManager {
             }
         }
         if kept.count != connections[index].enabledTools.count {
-            connections[index].enabledTools = Array(kept.prefix(limits.maxEnabledTools))
+            connections[index].enabledTools = kept  // only ever fewer than before, so the overall limit still holds
             _ = persist()
         }
         notices[id] = messages.isEmpty ? nil : messages
