@@ -47,33 +47,73 @@ import Testing
         #expect(DocumentComparison.droppedReferenceNote(0) == nil)
     }
 
-    @Test func gapsAreComputedFromFactsNoRowPairsAndCapped() {
+    @Test func unpairedFactsAreListedNeutrallyPerFileAndTheModelsOneSidedRowIsLabelledAsItsAssessment() {
         let rendered = render(FactPairing(
             rows: [
                 PairedRow(topic: "Launch", aFacts: ["A1"], bFacts: ["B1"], relation: .differ),
                 PairedRow(topic: "Budget", aFacts: [], bFacts: ["B2"], relation: .onlyB),
             ],
-            questions: []
+            questions: ["Who approves the launch?"]
         ))
-        // B2 comes from a one-sided row; A2, A3 and B3 were never paired. The fact without an excerpt is marked uncited.
-        #expect(rendered.markdown.contains("""
-        ### Gaps
+        // B2 is the model's own one-sided judgment; A2, A3 and B3 were simply not referenced. The fact without an excerpt is marked uncited.
+        #expect(rendered.markdown == """
+        | Topic | plan-v1.md | plan-v2.md |
+        | --- | --- | --- |
+        | Launch | Launch is 14 June 2026. [S3] | Launch is 28 July 2026. [S7] |
 
-        - Only in plan-v2.md: The budget was raised after the Brightway quote. [S9]
-        - Only in plan-v1.md: Only the Lisbon office is covered. [S1]
-        - Only in plan-v1.md: The privacy review has no owner. (uncited)
-        - Only in plan-v2.md: Nadia Okafor owns the privacy review. [S6]
-        """))
+        ### Stated in one document only (assessed by the model)
+
+        - plan-v2.md: The budget was raised after the Brightway quote. [S9]
+
+        ### Other points from plan-v1.md
+
+        - Only the Lisbon office is covered. [S1]
+        - The privacy review has no owner. (uncited)
+
+        ### Other points from plan-v2.md
+
+        - Nadia Okafor owns the privacy review. [S6]
+
+        ### Questions to resolve
+
+        - Who approves the launch?
+        """)
         #expect(!rendered.markdown.contains("| Budget |"))
-
-        let many = (1...9).map { DocumentFact(id: "A\($0)", topic: "T", statement: "Fact \($0).", excerptID: "S1") }
-        let capped = DocumentComparison.render(FactPairing(rows: [], questions: []), factsA: many, factsB: [], nameA: "a.md", nameB: "b.md")
-        #expect(capped.markdown.contains("- Only in a.md: Fact 6. [S1]"))
-        #expect(!capped.markdown.contains("Fact 7."))
-        #expect(capped.markdown.hasSuffix("- and 3 more"))
     }
 
-    @Test func aFactPairedInATableRowIsNotAlsoAGap() {
+    @Test func omissionFromThePairingNeverProducesOnlyInOrGapWording() {
+        // The model referenced nothing at all: every fact is merely unpaired.
+        let rendered = render(FactPairing(rows: [], questions: []))
+        #expect(rendered.markdown == """
+        ### Other points from plan-v1.md
+
+        - Launch is 14 June 2026. [S3]
+        - Only the Lisbon office is covered. [S1]
+        - The privacy review has no owner. (uncited)
+
+        ### Other points from plan-v2.md
+
+        - Launch is 28 July 2026. [S7]
+        - The budget was raised after the Brightway quote. [S9]
+        - Nadia Okafor owns the privacy review. [S6]
+        """)
+        let lowercased = rendered.markdown.lowercased()
+        for word in ["only in", "gap", "missing", "absent", "one document only", "assessed"] {
+            #expect(!lowercased.contains(word), "unexpected wording: \(word)")
+        }
+    }
+
+    @Test func otherPointsAreCappedPerFile() {
+        let many = (1...9).map { DocumentFact(id: "A\($0)", topic: "T", statement: "Fact \($0).", excerptID: "S1") }
+        let capped = DocumentComparison.render(FactPairing(rows: [], questions: []), factsA: many, factsB: [], nameA: "a.md", nameB: "b.md")
+        #expect(capped.markdown.hasPrefix("### Other points from a.md\n\n- Fact 1. [S1]"))
+        #expect(capped.markdown.contains("- Fact 6. [S1]"))
+        #expect(!capped.markdown.contains("Fact 7."))
+        #expect(capped.markdown.hasSuffix("- and 3 more"))
+        #expect(!capped.markdown.contains("b.md"))
+    }
+
+    @Test func aFactPairedInATableRowIsListedNowhereElse() {
         let rendered = render(FactPairing(
             rows: [
                 PairedRow(topic: "Launch", aFacts: ["A1"], bFacts: ["B1"], relation: .agree),
@@ -81,7 +121,22 @@ import Testing
             ],
             questions: []
         ))
-        #expect(!rendered.markdown.contains("Only in plan-v1.md: Launch is 14 June 2026."))
+        #expect(rendered.markdown.components(separatedBy: "Launch is 14 June 2026.").count == 2)
+        #expect(!rendered.markdown.contains(DocumentComparison.assessedOneSidedTitle))
+    }
+
+    @Test func aOneSidedRowKeepsOwnershipAndAContradictingSideIsNotCalledOneSided() {
+        let rendered = render(FactPairing(
+            // The model says onlyA but also lists B2; B3 is an unknown-side ID. Only A2 is the model's one-sided judgment.
+            rows: [PairedRow(topic: "Offices", aFacts: ["A2", "B3"], bFacts: ["B2"], relation: .onlyA)],
+            questions: []
+        ))
+        #expect(rendered.droppedReferences == 1)
+        #expect(rendered.markdown.contains("### Stated in one document only (assessed by the model)\n\n- plan-v1.md: Only the Lisbon office is covered. [S1]"))
+        // B2 was not judged one-sided, so it is an ordinary unpaired point of its own file.
+        let assessedSection = rendered.markdown.components(separatedBy: "### Other points").first ?? ""
+        #expect(!assessedSection.contains("Brightway"))
+        #expect(rendered.markdown.contains("### Other points from plan-v2.md\n\n- Launch is 28 July 2026. [S7]\n- The budget was raised after the Brightway quote. [S9]"))
     }
 
     @Test func excerptIDsAreCheckedAgainstTheLabelsOfTheWindow() {

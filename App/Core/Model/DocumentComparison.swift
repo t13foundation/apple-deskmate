@@ -7,8 +7,10 @@ import FoundationModels
 /// that each fit the context. A window yields structured facts (guided generation), each with the excerpt it came from;
 /// the excerpt ID is checked in code against the labels that window was given. The two fact lists are numbered A1... and
 /// B1... and a final guided stage only pairs them by ID and writes questions. Code renders every table cell from the
-/// referenced facts' own statements and citations, so a fact can never appear in the other document's column, and
-/// computes the gaps itself. Nothing is cut: a document that would need more than `maxWindowsPerDocument` windows is
+/// referenced facts' own statements and citations, so a fact can never appear in the other document's column. Facts the
+/// pairing did not reference are listed neutrally per file: code never claims that a point is missing from a document,
+/// because leaving a fact unpaired does not show that. Only the model's own onlyA/onlyB rows are listed as stated in
+/// one document only, labelled as its assessment. Nothing is cut: a document that would need more than `maxWindowsPerDocument` windows is
 /// refused with an explanation.
 public enum DocumentComparison {
     public static let maxWindowsPerDocument = 6
@@ -25,8 +27,8 @@ public enum DocumentComparison {
     public static let condensedNotesTokens = 800
     public static let maxRows = 8
     public static let maxQuestions = 4
-    /// Gaps listed before the rest is summarised as "and N more".
-    public static let maxGapsShown = 6
+    /// Points listed in one section before the rest is summarised as "and N more".
+    public static let maxListedShown = 6
     public static let overheadTokensPerExcerpt = 20
     /// Upper bound for the pairing stage. A structured result of at most 8 rows of IDs and 4 questions needs well
     /// under 1,000 tokens; the ceiling stops a looping answer long before it fills the whole window.
@@ -94,6 +96,32 @@ public enum DocumentComparison {
             actions: [],
             code: "comparisonNeedsTwo"
         )
+    }
+
+    // MARK: Stage diagnostics
+
+    /// Names a stage without content: document A or B (never the file name) and the window or step number.
+    public static func extractionStage(document: Int, window: Int, of count: Int) -> String {
+        "extract\(document == 0 ? "A" : "B")\(window)of\(count)"
+    }
+
+    public static func condenseStage(document: Int, batch: Int, of count: Int) -> String {
+        "condense\(document == 0 ? "A" : "B")\(batch)of\(count)"
+    }
+
+    public static let pairingStage = "pairing"
+
+    /// Runs one model stage. A failure leaves as a `ComparisonStageError`, so the stage is known. Cancellation passes through.
+    public static func stage<T>(_ name: String, isolation: isolated (any Actor)? = #isolation, _ body: () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as ComparisonStageError {
+            throw error
+        } catch {
+            throw ComparisonStageError(stage: name, underlying: error)
+        }
     }
 
     // MARK: Wording
@@ -221,12 +249,21 @@ public enum DocumentComparison {
         return (found, dropped)
     }
 
-    /// The Markdown for a pairing: the table, then "Gaps", then "Questions to resolve".
+    /// Heading of the list of facts the model itself judged to be stated in one document only.
+    public static let assessedOneSidedTitle = "Stated in one document only (assessed by the model)"
+
+    /// The Markdown for a pairing: the table, then the model's one-document-only assessment, then the other points of
+    /// each file, then "Questions to resolve".
     ///
     /// Every table cell is built from the statements and excerpt IDs of the facts it references, and only from the
     /// facts of its own document: an ID of the other document or an unknown ID is dropped and counted in
     /// `droppedReferences`. A row reaches the table only when both sides kept at least one fact and its relation is
-    /// agree or differ. Every other fact, including facts the model did not reference, is a gap, computed here.
+    /// agree or differ.
+    ///
+    /// Code never claims that a point is missing from a document. A fact the model did not reference was merely not
+    /// paired, which does not show that the other document lacks it, so it is listed under a neutral per-file heading
+    /// ("Other points from <file>"). Only a row the model itself called onlyA or onlyB is listed as stated in one
+    /// document only, under a heading that names it the model's assessment.
     public static func render(
         _ pairing: FactPairing,
         factsA: [DocumentFact],
@@ -239,7 +276,7 @@ public enum DocumentComparison {
         var dropped = 0
         var tableLines: [String] = []
         var covered = Set<String>()
-        var rowGaps: [(document: String, fact: DocumentFact)] = []
+        var assessedFacts: [(document: String, fact: DocumentFact)] = []
 
         for row in pairing.rows {
             let a = resolve(row.aFacts, in: byIDA)
@@ -253,21 +290,27 @@ public enum DocumentComparison {
                 tableLines.append("| \(cell(topic)) | \(cell(cellA)) | \(cell(cellB)) |")
                 covered.formUnion(a.facts.map(\.id))
                 covered.formUnion(b.facts.map(\.id))
-            } else {
-                rowGaps += a.facts.map { (nameA, $0) } + b.facts.map { (nameB, $0) }
+            } else if row.relation == .onlyA {
+                // The model's judgment covers the A side only; a B fact in such a row contradicts it and is just unpaired.
+                assessedFacts += a.facts.map { (nameA, $0) }
+            } else if row.relation == .onlyB {
+                assessedFacts += b.facts.map { (nameB, $0) }
             }
         }
 
-        // Gaps: what no table row pairs. Facts of rows the model called one-sided come first, then facts it never mentioned.
-        var gaps: [String] = []
+        // A fact paired in the table is never listed again. A fact the model judged one-sided is listed once, there.
+        var assessed: [String] = []
         var listed = Set<String>()
-        func addGap(_ document: String, _ fact: DocumentFact) {
-            guard !covered.contains(fact.id), listed.insert(fact.id).inserted else { return }
-            gaps.append("Only in \(bullet(document)): \(shown(fact))")
+        for item in assessedFacts where !covered.contains(item.fact.id) && listed.insert(item.fact.id).inserted {
+            assessed.append("\(bullet(item.document)): \(shown(item.fact))")
         }
-        for gap in rowGaps { addGap(gap.document, gap.fact) }
-        for fact in factsA { addGap(nameA, fact) }
-        for fact in factsB { addGap(nameB, fact) }
+
+        var sections: [(title: String, items: [String])] = [(assessedOneSidedTitle, capped(assessed))]
+        for (name, facts) in [(nameA, factsA), (nameB, factsB)] {
+            let others = facts.filter { !covered.contains($0.id) && !listed.contains($0.id) }.map(shown)
+            sections.append(("Other points from \(bullet(name))", capped(others)))
+        }
+        sections.append(("Questions to resolve", pairing.questions.map(plain).filter { !$0.isEmpty }))
 
         var lines: [String] = []
         if !tableLines.isEmpty {
@@ -275,17 +318,20 @@ public enum DocumentComparison {
             lines.append("| --- | --- | --- |")
             lines += tableLines
         }
-        var gapItems = Array(gaps.prefix(maxGapsShown))
-        if gaps.count > maxGapsShown { gapItems.append("and \(gaps.count - maxGapsShown) more") }
-        let questions = pairing.questions.map(plain).filter { !$0.isEmpty }
-        for (title, items) in [("Gaps", gapItems), ("Questions to resolve", questions)] {
-            guard !items.isEmpty else { continue }
+        for section in sections where !section.items.isEmpty {
             if !lines.isEmpty { lines.append("") }
-            lines.append("### \(title)")
+            lines.append("### \(section.title)")
             lines.append("")
-            lines.append(contentsOf: items.map { "- \($0)" })
+            lines.append(contentsOf: section.items.map { "- \($0)" })
         }
         return (lines.joined(separator: "\n"), dropped)
+    }
+
+    /// The first `maxListedShown` items, then "and N more" for the rest.
+    private static func capped(_ items: [String]) -> [String] {
+        var shownItems = Array(items.prefix(maxListedShown))
+        if items.count > maxListedShown { shownItems.append("and \(items.count - maxListedShown) more") }
+        return shownItems
     }
 
     // MARK: Compared material
@@ -316,6 +362,41 @@ public enum DocumentComparison {
     public static func droppedReferenceNote(_ count: Int) -> String? {
         guard count > 0 else { return nil }
         return "*\(count) \(count == 1 ? "reference" : "references") to facts that do not belong to that document \(count == 1 ? "was" : "were") dropped.*"
+    }
+}
+
+/// A model failure with the comparison stage it happened in. Carries no document content: only the stage name and the
+/// system error, which is reported as its case name plus NSError domain and code.
+public struct ComparisonStageError: Error, Sendable {
+    public let stage: String
+    public let underlying: any Error
+
+    public init(stage: String, underlying: any Error) {
+        self.stage = stage
+        self.underlying = underlying
+    }
+
+    /// The Foundation Models error case, or the error's type when it is not a generation error.
+    public var caseName: String {
+        guard let error = underlying as? LanguageModelSession.GenerationError else { return "\(type(of: underlying))" }
+        switch error {
+        case .exceededContextWindowSize: return "exceededContextWindowSize"
+        case .assetsUnavailable: return "assetsUnavailable"
+        case .guardrailViolation: return "guardrailViolation"
+        case .unsupportedGuide: return "unsupportedGuide"
+        case .unsupportedLanguageOrLocale: return "unsupportedLanguageOrLocale"
+        case .decodingFailure: return "decodingFailure"
+        case .rateLimited: return "rateLimited"
+        case .concurrentRequests: return "concurrentRequests"
+        case .refusal: return "refusal"
+        @unknown default: return "unknownGenerationError"
+        }
+    }
+
+    /// For example `pairing:decodingFailure:FoundationModels.LanguageModelSession.GenerationError#4`.
+    public var diagnostic: String {
+        let detail = underlying as NSError
+        return "\(stage):\(caseName):\(detail.domain)#\(detail.code)"
     }
 }
 

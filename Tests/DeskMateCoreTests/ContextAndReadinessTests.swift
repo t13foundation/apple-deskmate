@@ -120,6 +120,18 @@ import FoundationModels
         #expect(!result.code.contains("secret"))
     }
 
+    @Test func aComparisonStageFailureNamesTheStageAndErrorCaseButKeepsTheWording() {
+        let secret = LanguageModelSession.GenerationError.Context(debugDescription: "secret document text")
+        let staged = ComparisonStageError(stage: DocumentComparison.pairingStage, underlying: LanguageModelSession.GenerationError.decodingFailure(secret))
+        let result = ChatFailure.from(error: staged)
+        #expect(result.code.hasPrefix("comparison:pairing:decodingFailure:"))
+        #expect(result.title == failure(.decodingFailure(context)).title)
+        #expect(!result.code.contains("secret"))
+        #expect(!result.message.contains("secret"))
+        #expect(DocumentComparison.extractionStage(document: 1, window: 2, of: 3) == "extractB2of3")
+        #expect(DocumentComparison.condenseStage(document: 0, batch: 1, of: 2) == "condenseA1of2")
+    }
+
     @Test func everyGenerationFailureHasTitleAndMessage() {
         let all: [LanguageModelSession.GenerationError] = [
             .exceededContextWindowSize(context), .assetsUnavailable(context), .guardrailViolation(context),

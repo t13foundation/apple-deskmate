@@ -322,11 +322,13 @@ public final class SystemModelEngine: ConversationEngine {
                 documentLabels.formUnion(windowLabels)
                 // Guided generation: each fact carries the excerpt it came from, which code checks against this window's labels.
                 let extraction = Self.stageSession(model: model, instructions: DocumentComparison.extractionInstructions)
-                let response = try await extraction.respond(
-                    to: DocumentComparison.extractionPrompt(fileName: attachment.fileName, excerpts: excerpts),
-                    generating: FactExtraction.self,
-                    options: extractOptions
-                )
+                let response = try await DocumentComparison.stage(DocumentComparison.extractionStage(document: position, window: index + 1, of: windows.count)) {
+                    try await extraction.respond(
+                        to: DocumentComparison.extractionPrompt(fileName: attachment.fileName, excerpts: excerpts),
+                        generating: FactExtraction.self,
+                        options: extractOptions
+                    )
+                }
                 if await Self.hitLimit(response.rawContent.jsonString, cap: DocumentComparison.notesResponseTokens, meter: meter) { notesHitLimit = true }
                 collected += DocumentComparison.notes(from: response.content.facts, validLabels: windowLabels)
             }
@@ -338,15 +340,17 @@ public final class SystemModelEngine: ConversationEngine {
                 let batches = stride(from: 0, to: facts.count, by: DocumentComparison.condenseBatchFacts).map {
                     Array(facts[$0..<min($0 + DocumentComparison.condenseBatchFacts, facts.count)])
                 }
-                for batch in batches {
+                for (batchIndex, batch) in batches.enumerated() {
                     try Task.checkCancellation()
                     continuation.yield(TurnUpdate(text: "", activity: "Summarizing \(attachment.fileName)…"))
                     let condense = Self.stageSession(model: model, instructions: DocumentComparison.condenseInstructions)
-                    let response = try await condense.respond(
-                        to: DocumentComparison.condensePrompt(fileName: attachment.fileName, facts: batch),
-                        generating: FactExtraction.self,
-                        options: condenseOptions
-                    )
+                    let response = try await DocumentComparison.stage(DocumentComparison.condenseStage(document: position, batch: batchIndex + 1, of: batches.count)) {
+                        try await condense.respond(
+                            to: DocumentComparison.condensePrompt(fileName: attachment.fileName, facts: batch),
+                            generating: FactExtraction.self,
+                            options: condenseOptions
+                        )
+                    }
                     if await Self.hitLimit(response.rawContent.jsonString, cap: DocumentComparison.condensedNotesTokens, meter: meter) { notesHitLimit = true }
                     condensed += DocumentComparison.notes(from: response.content.facts, validLabels: documentLabels)
                 }
@@ -375,7 +379,9 @@ public final class SystemModelEngine: ConversationEngine {
         finalOptions.maximumResponseTokens = finalCap
         // Guided generation: the model only pairs fact IDs and writes questions. Code writes every cell from the facts.
         let final = Self.stageSession(model: model, instructions: DocumentComparison.pairingInstructions)
-        let response = try await final.respond(to: prompt, generating: FactPairing.self, options: finalOptions)
+        let response = try await DocumentComparison.stage(DocumentComparison.pairingStage) {
+            try await final.respond(to: prompt, generating: FactPairing.self, options: finalOptions)
+        }
         let finalHitLimit = await Self.hitLimit(response.rawContent.jsonString, cap: finalCap, meter: meter)
         let rendered = DocumentComparison.render(
             response.content,

@@ -68,6 +68,12 @@ public struct ChatFailure: Equatable, Sendable {
     // MARK: Failures while generating (the question is already in the transcript)
 
     public static func from(error: any Error) -> ChatFailure {
+        if let staged = error as? ComparisonStageError {
+            // The user-facing wording stays that of the underlying error; the code names the stage, the error case and its NSError domain and code.
+            var failure = from(error: staged.underlying)
+            failure.code = "comparison:\(staged.diagnostic)"
+            return failure
+        }
         guard let generationError = error as? LanguageModelSession.GenerationError else {
             // The error type name identifies the problem for support without exposing any content.
             let detail = error as NSError

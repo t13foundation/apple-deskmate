@@ -313,7 +313,7 @@ public final class ConversationController {
 
     // MARK: Attachments
 
-    public nonisolated static let comparisonPrompt = "Compare these two documents. Show the differences in a table, then list the gaps and the questions I should resolve."
+    public nonisolated static let comparisonPrompt = "Compare these two documents. Show the differences in a table, then list the questions I should resolve."
 
     /// Reads files the person picked and adds them to the question being written.
     /// Files are read whole, once, with the same format and size limits as My files.
