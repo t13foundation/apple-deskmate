@@ -35,7 +35,7 @@ The sidebar has a My files section. You add a folder or individual TXT, Markdown
 
 Limits: 200 files per library, 10 MB and 50 pages per file, 5 attachments per question. Skipped files (unsupported type, scanned PDF without text, oversize, unreadable) are listed with a reason and an action. Refresh finds added, changed and removed files. A source that was moved, deleted or whose access was revoked is treated as revoked: it is not searchable and its excerpts are not returned. Scanned PDFs are not read because OCR is out of scope.
 
-Implemented and unit-tested with synthetic data. The UI flow is verified on the real Mac in the running app: folder import, cited answers with the source inspector, Refresh and Remove, and attaching files to a question. Real on-device answers were also produced headlessly with `--ask` (see below). The native table layout is not yet inspected in the running app. The final accessibility pass (VoiceOver spoken output, reduced motion, keyboard) belongs to the later quality package.
+Implemented and unit-tested with synthetic data. The UI flow is verified on the real Mac in the running app: folder import, cited answers with the source inspector, Refresh and Remove, and attaching files to a question. Real on-device answers were also produced headlessly with `--ask` (see below). The native table renderer was independently inspected on the target Mac with synthetic data in compact and wide windows, light and dark; real comparison inference and citation inspection were verified separately with unchanged model code. The final accessibility pass (VoiceOver spoken output, reduced motion, keyboard) belongs to the later quality package.
 
 Known limitations of this package:
 
