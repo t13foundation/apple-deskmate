@@ -4,6 +4,7 @@ import Observation
 enum AppSection: Hashable {
     case chat
     case files
+    case connections
 }
 
 /// Which screen is showing and which cited excerpt the source drawer displays.

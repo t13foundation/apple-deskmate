@@ -27,7 +27,7 @@ Known limitations:
 - Checking a very long draft against the context limit can take several seconds before the message appears.
 - The model does not always follow length instructions exactly.
 - VoiceOver spoken output and the final accessibility pass belong to the later quality package.
-- Not implemented yet in this checkout: MCP, persistence and history, widget, compact panel, global shortcut, menu bar. See the Issues.
+- Not implemented yet in this checkout: assistant use of MCP tools (tool calls from chat), persistence and history, widget, compact panel, global shortcut, menu bar. See the Issues.
 
 ### My files (Issue #3, WBS-PROT-02)
 
@@ -42,6 +42,35 @@ Known limitations of this package:
 - The on-device model sometimes skips the search tool and says it found nothing, sometimes ignores that two versions of a document disagree, and sometimes cites an unrelated excerpt when it answers “not in your files”. Citations prove which excerpts the model saw, not that every sentence is supported by them.
 - Retrieval is keyword-based (BM25 with light stemming), so questions that share no words with the passage can miss it.
 - Image-only PDFs, OCR, DOCX and web pages are not supported. The chosen sources (with bookmarks) and a rebuildable text index are saved as JSON in the app’s Application Support folder, so extracted document text is stored on this Mac until you remove the source. Conversation history is a separate package.
+
+### Connections (Issue #6, WBS-PROT-05)
+
+The sidebar has a Connections item after My files. You add a Streamable HTTP MCP service by name and address (https, or plain http only for `localhost`, `127.0.0.1` or `::1`), optionally with a Bearer token. Adding only saves the connection and contacts nothing. **Test connection** performs the MCP handshake, negotiates the protocol version and lists the real tools with their input schemas; the connection then stays connected until you **Disconnect**, **Disable** it or quit. You can turn on up to five tools per connection. A tool whose input format DeskMate cannot check, or whose name is unusual, is shown with the reason and cannot be turned on. Names and descriptions come from the service, are shown as plain text only (never Markdown or links), and “the service says this tool only reads data” is displayed as a claim, not as a guarantee. **Delete** asks first, then removes the connection and its Keychain token; if the token cannot be removed, the connection is kept.
+
+Where things live (none of it contains document text or chat text):
+
+- Configuration (name, address, enabled tool names with a fingerprint) is `Application Support/DeskMate/Connections/connections.json` inside the app’s sandbox container, mode 0600. It never holds a token.
+- The token is a generic-password Keychain item, service `com.t13foundation.DeskMate.mcp-connection`, account = the connection’s `id` from `connections.json`. It is device-only and available only while the Mac is unlocked.
+- The signed app carries `com.apple.security.network.client` (outgoing requests only, no server entitlement). No Info.plist App Transport Security exception is used: Apple documents that ATS does not apply to IP-address hosts, which covers `http://127.0.0.1` and `http://[::1]`. `http://localhost` is an unqualified host name, for which Apple’s documentation is ambiguous; if macOS blocks it, use `127.0.0.1` (the narrowest fix would be `NSAllowsLocalNetworking`, which is deliberately not set).
+- Nothing is called from chat yet: this package delivers the connection, discovery, selection and the permission checks the assistant tool layer will use.
+
+Synthetic loopback fixture (fictional “Project Lumen” data, binds to `127.0.0.1` only, never use a real credential with it):
+
+```sh
+swift run DeskMateMCPFixture --port 8765                                  # no sign-in
+swift run DeskMateMCPFixture --port 8765 --token synthetic-demo-token     # requires "Authorization: Bearer synthetic-demo-token"
+swift run DeskMateMCPFixture --port 8765 --demo-tools                     # adds six tools: four supported (more than the five-tool cap), two unsupported shapes
+# other switches: --delay <s> (timeouts), --oversize, --reject-auth (401), --redirect, --stateless, --run-for <s>
+```
+
+Then add `http://127.0.0.1:8765/mcp` in Connections. The fixture prints every request it receives (session, method, JSON-RPC method, tool name and arguments, status); adding or testing a connection produces `initialize`, `notifications/initialized` and `tools/list` and never a `tools/call`. The same client runs headlessly, with in-memory stores and no UI:
+
+```sh
+swift run DeskMateMCPCheck --self-host --call get_project_status project="Project Lumen"
+swift run DeskMateMCPCheck http://127.0.0.1:8765/mcp --token synthetic-demo-token
+```
+
+Quitting the app closes open connections (waiting at most two seconds) so an unresponsive service cannot keep it open.
 
 ## Build, test and run
 
@@ -78,7 +107,7 @@ swift run DeskMate --ask "…" --library Fixtures/Library --follow-up "…" --sh
 
 `scripts/test.sh` exists because with only Command Line Tools selected, plain `swift test` cannot find the Testing framework: it either fails to compile (`no such module 'Testing'`) or builds and runs zero tests. The script reads the developer directory from `$DEVELOPER_DIR` (else `xcode-select -p`), adds the framework path only for Command Line Tools, fails if no tests ran, and is plain `swift test` under full Xcode.
 
-The app bundle is signed with `App/Resources/DeskMate.entitlements` (App Sandbox only for now). The widget’s App Group is not proved yet and is handled in the widget package.
+The app bundle is signed with `App/Resources/DeskMate.entitlements`: App Sandbox, read-only user-selected files with app-scoped bookmarks, and outgoing network (`network.client`) for Connections. The widget’s App Group is not proved yet and is handled in the widget package.
 
 Apple Intelligence must be enabled, and it was unavailable on this Mac while the primary language was Polish; it worked after English became the primary language. The app shows the unavailable state honestly and opens the relevant System Settings pane on request, but never changes these settings.
 

@@ -4,14 +4,17 @@
 <dict>
 	<!-- The app stays sandboxed. Foundation Models needs no entitlement.
 	     My files reads only what the person picks in the open panel, read-only, and keeps
-	     access across launches with app-scoped security bookmarks. There is no network entitlement.
-	     Later packages add, and only when their feature lands:
-	     network.client (approved MCP endpoints) and the App Group for the widget. -->
+	     access across launches with app-scoped security bookmarks.
+	     Connections makes outgoing requests only to the addresses the person adds (https, or http to
+	     this Mac for development), so it needs network.client. There is no server entitlement.
+	     A later package adds the App Group for the widget, when that feature lands. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
 	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
 </plist>

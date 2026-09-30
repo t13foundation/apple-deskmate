@@ -1,7 +1,19 @@
 import DeskMateCore
 import SwiftUI
 
-/// The tools a connected service offers, with a checkbox for each one DeskMate can check.
+extension ToolInputSchema {
+    /// One line naming every input and its type, for example "project (text, required), detail (one of: brief, full)".
+    var summaryText: String {
+        guard !properties.isEmpty else { return "Takes no inputs." }
+        let parts = properties.map { property in
+            "\(property.name) (\(property.kindLabel)\(property.isRequired ? ", required" : ""))"
+        }
+        return "Inputs: " + parts.joined(separator: ", ") + "."
+    }
+}
+
+/// The tools a connected service offers, with a switch for each one DeskMate can check.
+/// Everything the service wrote (names, descriptions, input notes) is untrusted: it is shown as plain text only.
 struct ToolsSection: View {
     let manager: ConnectionManager
     let connection: MCPConnection
@@ -14,53 +26,62 @@ struct ToolsSection: View {
         let limit = manager.maxEnabledTools
         let atLimit = enabledCount >= limit
 
-        VStack(alignment: .leading, spacing: DS.Spacing.m) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: DS.Spacing.s) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Spacing.s) {
                 Text("Tools")
                     .font(.dmSection)
                     .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                Text("\(enabledCount) of \(limit) turned on")
-                    .font(.dmCaption)
-                    .foregroundStyle(.secondary)
+                DMBadge(text: "\(enabledCount) of \(limit) turned on", tint: atLimit ? .dmWarning : .dmAccent)
                     .accessibilityLabel("\(enabledCount) of \(limit) tools turned on")
+                Spacer(minLength: 0)
             }
 
-            Text("Choose the tools the assistant may use, up to \(limit). Names and descriptions come from the service and DeskMate cannot verify them. Tools you leave off are never used.")
+            Text("Turn on the tools the assistant may use, up to \(limit). Names and descriptions come from the service and DeskMate cannot verify them. Tools you leave off are never used.")
                 .font(.dmCaption)
                 .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if atLimit {
-                NoteRow(
+                DMNotice(
                     symbol: "info.circle",
-                    text: "You have turned on the most tools allowed (\(limit)). Turn one off to choose another.",
-                    tint: Color.dmAccent
+                    tint: .dmAccent,
+                    title: "\(limit) tools are turned on, the most allowed",
+                    message: "Turn one off to choose another."
                 )
             }
             if let message {
-                NoteRow(symbol: "exclamationmark.circle", text: message, tint: .orange)
+                DMNotice(
+                    symbol: "exclamationmark.circle",
+                    tint: .dmWarning,
+                    title: message,
+                    onDismiss: { self.message = nil }
+                )
             }
 
             if tools.isEmpty {
                 Text("This service does not offer any tools.")
                     .font(.dmBody)
                     .foregroundStyle(.secondary)
-            }
-
-            ForEach(tools) { tool in
-                ToolRow(
-                    tool: tool,
-                    isOn: manager.isToolEnabled(tool.name, in: connection.id),
-                    atLimit: atLimit,
-                    limit: limit,
-                    setOn: { value in
-                        let outcome = manager.setTool(tool.name, enabled: value, in: connection.id)
-                        message = outcome.message
-                        if outcome == .changed {
-                            Announcer.post(value ? "Turned on \(tool.displayName)." : "Turned off \(tool.displayName).")
-                        }
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(tools.enumerated()), id: \.element.id) { index, tool in
+                        if index > 0 { Divider() }
+                        ToolRow(
+                            tool: tool,
+                            isOn: manager.isToolEnabled(tool.name, in: connection.id),
+                            atLimit: atLimit,
+                            limit: limit,
+                            setOn: { value in
+                                let outcome = manager.setTool(tool.name, enabled: value, in: connection.id)
+                                message = outcome.message
+                                if outcome == .changed {
+                                    Announcer.post(value ? "Turned on \(tool.displayName)." : "Turned off \(tool.displayName).")
+                                }
+                            }
+                        )
                     }
-                )
+                }
+                .dmSurface(radius: DS.Radius.control)
             }
 
             if let omitted = manager.catalogs[connection.id]?.omittedCount, omitted > 0 {
@@ -74,6 +95,7 @@ struct ToolsSection: View {
     }
 }
 
+/// One tool: switch, name, what the service says about it, and what it takes as input.
 struct ToolRow: View {
     let tool: ConnectionTool
     let isOn: Bool
@@ -81,105 +103,113 @@ struct ToolRow: View {
     let limit: Int
     let setOn: (Bool) -> Void
 
-    @State private var showInputs = false
+    @State private var showsInputDetails = false
 
     private var canToggle: Bool {
         isOn || (tool.isEnableable && !atLimit)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            Toggle(
-                isOn: Binding(get: { isOn }, set: { setOn($0) })
-            ) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: tool.displayName)
-                        .font(.dmBody.weight(.medium))
-                    if tool.displayName != tool.name {
-                        Text(verbatim: tool.name)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .toggleStyle(.checkbox)
-            .disabled(!canToggle)
-            .help(helpText)
-            .accessibilityLabel("Turn on \(tool.displayName)")
-            .accessibilityHint(accessibilityHint)
-
+        HStack(alignment: .top, spacing: DS.Spacing.m) {
             VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                Text(verbatim: tool.displayName)
+                    .font(.dmBody.weight(.medium))
+                if tool.displayName != tool.name {
+                    Text(verbatim: tool.name)
+                        .font(.dmCaption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
                 if !tool.descriptionText.isEmpty {
                     Text(verbatim: tool.descriptionText)
                         .font(.dmCaption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                switch tool.serverClaimsReadOnly {
-                case true?:
-                    NoteRow(symbol: "eye", text: "The service says this tool only reads data. DeskMate cannot check that.")
-                case false?:
-                    NoteRow(symbol: "pencil", text: "The service says this tool can change data.")
-                case nil:
-                    EmptyView()
-                }
-
+                claim
                 switch tool.support {
                 case .supported(let schema):
-                    DisclosureGroup(isExpanded: $showInputs) {
-                        inputs(schema)
-                    } label: {
-                        Text(schema.properties.isEmpty ? "Takes no inputs" : "Inputs (\(schema.properties.count))")
-                            .font(.dmCaption)
-                    }
-                    .font(.dmCaption)
+                    supported(schema)
                 case .unsupported(let reasons):
                     unsupported(reasons)
                 }
+                if !isOn, tool.isEnableable, atLimit {
+                    Label("Turn another tool off to turn this one on.", systemImage: "info.circle")
+                        .font(.dmCaption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .padding(.leading, 22)
+            Spacer(minLength: DS.Spacing.s)
+            Toggle(isOn: Binding(get: { isOn }, set: { setOn($0) })) {
+                Text(verbatim: "Turn on \(tool.displayName)")
+            }
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .disabled(!canToggle)
+            .help(helpText)
+            .accessibilityHint(accessibilityHint)
         }
-        .padding(.vertical, DS.Spacing.xs)
+        .padding(DS.Spacing.m)
         .accessibilityElement(children: .contain)
     }
 
-    private func inputs(_ schema: ToolInputSchema) -> some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            ForEach(schema.properties) { property in
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: DS.Spacing.xs) {
-                        Text(verbatim: property.name)
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        Text(verbatim: property.kindLabel + (property.isRequired ? ", required" : ", optional"))
-                            .font(.dmCaption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if !property.description.isEmpty {
-                        Text(verbatim: property.description)
-                            .font(.dmCaption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(3)
+    /// What the service says about changing data. A claim, never a guarantee: DeskMate's own rules do not depend on it.
+    @ViewBuilder private var claim: some View {
+        switch tool.serverClaimsReadOnly {
+        case true?:
+            Label("The service says this tool only reads data. DeskMate cannot check that.", systemImage: "eye")
+                .font(.dmCaption)
+                .foregroundStyle(.secondary)
+        case false?:
+            Label("The service says this tool can change data.", systemImage: "pencil")
+                .font(.dmCaption)
+                .foregroundStyle(.secondary)
+        case nil:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func supported(_ schema: ToolInputSchema) -> some View {
+        Text(verbatim: schema.summaryText)
+            .font(.dmCaption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        if schema.properties.contains(where: { !$0.description.isEmpty }) {
+            DisclosureGroup(isExpanded: $showsInputDetails) {
+                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                    ForEach(schema.properties) { property in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(verbatim: property.name + ", " + property.kindLabel + (property.isRequired ? ", required" : ", optional"))
+                                .font(.dmCaption.weight(.medium))
+                            if !property.description.isEmpty {
+                                Text(verbatim: property.description)
+                                    .font(.dmCaption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .combine)
                     }
                 }
-                .accessibilityElement(children: .combine)
+                .padding(.top, DS.Spacing.xs)
+            } label: {
+                Text("Input details")
+                    .font(.dmCaption)
             }
         }
-        .padding(.top, DS.Spacing.xs)
     }
 
     private func unsupported(_ reasons: [String]) -> some View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            NoteRow(
-                symbol: "exclamationmark.triangle",
-                text: "Cannot be turned on: DeskMate cannot check this tool’s inputs before sending them.",
-                tint: .orange
-            )
+            Label("Cannot be turned on. DeskMate cannot check this tool’s inputs before sending them.", systemImage: "exclamationmark.triangle")
+                .font(.dmCaption.weight(.medium))
+                .foregroundStyle(Color.dmWarning)
             ForEach(Array(reasons.enumerated()), id: \.offset) { _, reason in
                 Text(verbatim: "• " + reason)
                     .font(.dmCaption)
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 26)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .accessibilityElement(children: .combine)

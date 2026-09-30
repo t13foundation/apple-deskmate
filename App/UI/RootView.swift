@@ -2,11 +2,12 @@ import AppKit
 import DeskMateCore
 import SwiftUI
 
-/// Main window: a restrained sidebar and the conversation or My files.
-/// Later packages add Connections and Settings to the sidebar.
+/// Main window: a restrained sidebar and the conversation, My files or Connections.
+/// Later packages add Settings to the sidebar.
 struct RootView: View {
     let controller: ConversationController
     let library: LibraryStore
+    let connections: ConnectionManager
     @Bindable var navigation: AppNavigation
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -38,6 +39,10 @@ struct RootView: View {
                 LibraryView()
                     .navigationTitle("My files")
                     .navigationSubtitle("Stays on your Mac")
+            case .connections:
+                ConnectionsView(manager: connections)
+                    .navigationTitle("Connections")
+                    .navigationSubtitle("You choose which tools it may use")
             }
         }
         .toolbar {
@@ -90,7 +95,7 @@ struct RootView: View {
     }
 }
 
-/// Sidebar rows: New chat, the current conversation (once there is one), and My files.
+/// Sidebar rows: New chat, the current conversation (once there is one), My files and Connections.
 /// Conversations are not stored yet, so there is no Recent list to show.
 struct SidebarView: View {
     let controller: ConversationController
@@ -100,6 +105,7 @@ struct SidebarView: View {
         case newChat
         case current
         case files
+        case connections
     }
 
     var body: some View {
@@ -122,6 +128,12 @@ struct SidebarView: View {
                     .accessibilityLabel("My files")
                     .accessibilityHint("Shows the folders and files DeskMate may read")
             }
+            Section("Services") {
+                Label("Connections", systemImage: "point.3.connected.trianglepath.dotted")
+                    .tag(Item.connections)
+                    .accessibilityLabel("Connections")
+                    .accessibilityHint("Shows the tool services DeskMate may use and which tools are turned on")
+            }
         }
         .listStyle(.sidebar)
     }
@@ -131,6 +143,7 @@ struct SidebarView: View {
             get: {
                 switch navigation.section {
                 case .files: .files
+                case .connections: .connections
                 case .chat: controller.hasConversation ? .current : .newChat
                 }
             },
@@ -143,6 +156,8 @@ struct SidebarView: View {
                     navigation.section = .chat
                 case .files:
                     navigation.section = .files
+                case .connections:
+                    navigation.section = .connections
                 case nil:
                     break
                 }
