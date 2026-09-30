@@ -102,7 +102,8 @@ public final class SystemModelEngine: ConversationEngine {
             case .prompt(let value): sessionTokens += Self.estimate(value.segments)
             case .response(let value): sessionTokens += Self.estimate(value.segments)
             case .instructions, .toolCalls, .toolOutput: break
-            @unknown default: break
+            // Entry kinds added by newer SDKs are not counted here. The estimate is only a fallback; exact counting is preferred.
+            default: break
             }
         }
         return ContextUsage(
@@ -119,7 +120,8 @@ public final class SystemModelEngine: ConversationEngine {
             switch segment {
             case .text(let text): total + ContextBudget.estimateTokens(text.content)
             case .structure: total
-            @unknown default: total
+            // Segment kinds added by newer SDKs are not counted here.
+            default: total
             }
         }
     }

@@ -16,6 +16,7 @@ public enum ModelDiagnostics {
         model: SystemLanguageModel.default (on-device, Foundation Models)
         availability: \(availability)
         english (en_US) supported: \(snapshot.supportsEnglish ? "yes" : "no")
+        preferred system language: \(Locale.preferredLanguages.first ?? "unknown")
         context size: \(snapshot.contextSize) tokens
         token counting: \(snapshot.hasExactTokenCounting ? "exact (macOS 26.4+)" : "estimate only (macOS earlier than 26.4)")
         response reserve: \(ContextBudget.responseReserve(contextSize: snapshot.contextSize)) tokens

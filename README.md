@@ -33,7 +33,20 @@ bash scripts/build-app.sh         # assemble and ad-hoc sign dist/DeskMate.app (
 open dist/DeskMate.app
 ```
 
-`scripts/test.sh` exists because with only Command Line Tools selected, plain `swift test` cannot find the Testing framework: it either fails to compile (`no such module 'Testing'`) or builds and runs zero tests. The script adds the framework path when needed, fails if no tests ran, and is equivalent to `swift test` under full Xcode.
+`scripts/test.sh` exists because with only Command Line Tools selected, plain `swift test` cannot find the Testing framework: it either fails to compile (`no such module 'Testing'`) or builds and runs zero tests. The script reads the developer directory from `$DEVELOPER_DIR` (else `xcode-select -p`), adds the framework path only for Command Line Tools, fails if no tests ran, and is plain `swift test` under full Xcode.
+
+Two toolchains are supported and the deployment target stays macOS 26 for both: Command Line Tools (macOS 26.5 SDK, the global selection) and Xcode 27.0 (27A266a), used without changing `xcode-select`:
+
+```sh
+export DEVELOPER_DIR=/Users/marekwolansky/Downloads/Xcode.app/Contents/Developer   # example path
+swift build -c release
+bash scripts/test.sh
+bash scripts/build-app.sh
+```
+
+These three commands are run by the host with Xcode 27.0. Not executed yet as of this change: `swift build -c release` and `scripts/build-app.sh` with Xcode 27.0 and `scripts/test.sh` with either toolchain after the `DEVELOPER_DIR` change. The Xcode 27 SDK is also what surfaced the non-exhaustive `switch` warnings fixed in `SystemModelEngine.swift`.
+
+Do not use macOS 27 APIs; the code must compile warning-free against both SDKs.
 
 `scripts/build-app.sh` signs ad-hoc (`--sign -`) with `App/Resources/DeskMate.entitlements` (App Sandbox only for now). Ad-hoc signing is enough to run on this Mac. The widget’s App Group needs a real team identity and is handled in the widget package.
 

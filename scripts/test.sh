@@ -3,13 +3,18 @@
 #
 # With only the Command Line Tools selected, SwiftPM does not put the Testing framework on the search path:
 # `swift test` then fails to compile ("no such module 'Testing'") or builds and runs zero tests. This wrapper
-# adds the framework path in that case. With full Xcode selected it is exactly `swift test`.
+# adds the framework path in that case. With full Xcode it is exactly `swift test`.
+# The developer directory is $DEVELOPER_DIR when set, otherwise `xcode-select -p`.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-developer_dir="$(xcode-select -p 2>/dev/null || true)"
+developer_dir="${DEVELOPER_DIR:-}"
+if [[ -z "$developer_dir" ]]; then
+  developer_dir="$(xcode-select -p 2>/dev/null || true)"
+fi
+developer_dir="${developer_dir%/}"
 extra=()
 if [[ "$developer_dir" == "/Library/Developer/CommandLineTools" ]]; then
   frameworks="$developer_dir/Library/Developer/Frameworks"

@@ -91,7 +91,7 @@ public enum ModelReadiness: Equatable, Sendable {
         case .ready:
             "Answers are written by Apple’s model running on your Mac."
         case .appleIntelligenceOff:
-            "DeskMate answers with Apple’s on-device model, which needs Apple Intelligence. Open System Settings, choose Apple Intelligence & Siri, and turn on Apple Intelligence. Your message stays here until then."
+            "DeskMate answers with Apple’s on-device model, which needs Apple Intelligence. Open System Settings, choose Apple Intelligence & Siri, and turn on Apple Intelligence. Apple Intelligence also needs a supported Mac, a supported Siri language such as English, and a supported region. Your message stays here until then."
         case .modelNotReady:
             "macOS is still downloading or preparing the model. This can take a while after turning on Apple Intelligence. Keep your Mac connected to power and the internet, then choose Check again. Your message stays here."
         case .deviceNotEligible:

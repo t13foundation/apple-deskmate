@@ -72,6 +72,8 @@ import FoundationModels
         let off = ModelReadiness.appleIntelligenceOff
         #expect(off.message.contains("System Settings"))
         #expect(off.suggestsSystemSettings)
+        #expect(off.message.contains("supported Siri language"))
+        #expect(off.message.contains("supported region"))
         #expect(!ModelReadiness.modelNotReady.suggestsSystemSettings)
         #expect(ModelReadiness.deviceNotEligible.message.contains("doesn’t switch to a cloud model"))
     }
