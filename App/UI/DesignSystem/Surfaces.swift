@@ -75,9 +75,18 @@ extension View {
         modifier(DMAnimation(animation: animation, value: value))
     }
 
-    /// Quiet supporting text. Tertiary normally; secondary with Increase Contrast so it stays legible.
+    /// Supporting text that carries information: 12 pt in the secondary label colour. Never tertiary, which
+    /// is close to invisible on a light background.
     func dmFootnote() -> some View {
-        modifier(DMFootnote())
+        font(.dmCaption).foregroundStyle(.secondary)
+    }
+
+    /// Content of an empty state: centred in the available height, then lifted slightly above the centre
+    /// by keeping a share of the height free below it.
+    func dmEmptyStateAnchor(height: CGFloat) -> some View {
+        padding(.vertical, DS.Spacing.xl)
+            .padding(.bottom, max(DS.Spacing.xxl * 2, height * DS.Layout.emptyStateLift))
+            .frame(minHeight: height)
     }
 }
 
@@ -88,16 +97,6 @@ private struct DMAnimation<V: Equatable>: ViewModifier {
 
     func body(content: Content) -> some View {
         content.animation(reduceMotion ? nil : animation, value: value)
-    }
-}
-
-private struct DMFootnote: ViewModifier {
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    func body(content: Content) -> some View {
-        content
-            .font(.dmCaption)
-            .foregroundStyle(contrast == .increased ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
     }
 }
 

@@ -5,7 +5,7 @@ import SwiftUI
 /// Starters that need files guide the person to add or attach them first.
 ///
 /// The content sits in the shared reading column, slightly above the vertical centre: a title, one supporting
-/// line, three equal-width starter tiles and two quieter general starters.
+/// line and the three design-system starters as equal compact tiles.
 struct EmptyStateView: View {
     let controller: ConversationController
     @Environment(LibraryStore.self) private var library
@@ -23,19 +23,14 @@ struct EmptyStateView: View {
         let id: String
         let symbol: String
         let title: String
+        let detail: String
     }
 
     /// The document starters from the design system, shown as tiles.
     private let tiles: [Starter] = [
-        Starter(id: "files", symbol: "folder", title: "Ask about my files"),
-        Starter(id: "meeting", symbol: "list.bullet.rectangle", title: "Summarize a meeting"),
-        Starter(id: "compare", symbol: "rectangle.split.2x1", title: "Compare documents"),
-    ]
-
-    /// General questions that need no files.
-    private let quickStarters: [Starter] = [
-        Starter(id: "explain", symbol: "lightbulb", title: "Explain something simply"),
-        Starter(id: "email", symbol: "envelope", title: "Draft a short email"),
+        Starter(id: "files", symbol: "folder", title: "Ask about my files", detail: "Search your added files"),
+        Starter(id: "meeting", symbol: "list.bullet.rectangle", title: "Summarize a meeting", detail: "Paste notes, get a brief"),
+        Starter(id: "compare", symbol: "rectangle.split.2x1", title: "Compare documents", detail: "Pick two files"),
     ]
 
     var body: some View {
@@ -48,34 +43,10 @@ struct EmptyStateView: View {
                         subtitle: subtitle
                     )
 
-                    HStack(spacing: DS.Spacing.s) {
-                        ForEach(tiles) { starter in
-                            Button {
-                                choose(starter)
-                            } label: {
-                                tile(starter)
-                            }
-                            .buttonStyle(DMTileButtonStyle())
-                            .accessibilityLabel(starter.title)
-                            .accessibilityHint(hint(for: starter))
-                        }
-                    }
-
-                    HStack(spacing: DS.Spacing.m) {
-                        Text("Or try")
-                            .font(.dmCaption)
-                            .foregroundStyle(.secondary)
-                        ForEach(quickStarters) { starter in
-                            Button {
-                                choose(starter)
-                            } label: {
-                                Label(starter.title, systemImage: starter.symbol)
-                                    .font(.dmCaption)
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel(starter.title)
-                            .accessibilityHint(hint(for: starter))
-                        }
+                    // Three tiles in a row when they fit on one line each; stacked when the window is narrow.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: DS.Spacing.s) { tileButtons }
+                        VStack(spacing: DS.Spacing.s) { tileButtons }
                     }
 
                     if let guidance = activeGuidance {
@@ -83,10 +54,7 @@ struct EmptyStateView: View {
                     }
                 }
                 .dmReadingColumn()
-                .padding(.vertical, DS.Spacing.xl)
-                // Lifts the content above the exact centre so it reads as anchored near the top.
-                .padding(.bottom, DS.Spacing.xxl * 2)
-                .frame(minHeight: proxy.size.height)
+                .dmEmptyStateAnchor(height: proxy.size.height)
             }
             .scrollBounceBehavior(.basedOnSize)
         }
@@ -95,20 +63,17 @@ struct EmptyStateView: View {
         .dmAnimation(value: guidance)
     }
 
-    private func tile(_ starter: Starter) -> some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.s) {
-            Image(systemName: starter.symbol)
-                .font(.dmSection)
-                .foregroundStyle(Color.dmAccent)
-                .accessibilityHidden(true)
-            Text(starter.title)
-                .font(.dmBody)
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.leading)
-                .lineLimit(2)
+    private var tileButtons: some View {
+        ForEach(tiles) { starter in
+            Button {
+                choose(starter)
+            } label: {
+                StarterTile(symbol: starter.symbol, title: starter.title, detail: starter.detail)
+            }
+            .buttonStyle(DMTileButtonStyle())
+            .accessibilityLabel("\(starter.title). \(starter.detail)")
+            .accessibilityHint(hint(for: starter))
         }
-        .padding(DS.Spacing.m)
-        .frame(maxWidth: .infinity, minHeight: DS.Layout.tileMinHeight, alignment: .topLeading)
     }
 
     /// The guidance disappears once the person has done what it asked.
@@ -128,10 +93,7 @@ struct EmptyStateView: View {
     }
 
     private func hint(for starter: Starter) -> String {
-        switch starter.id {
-        case "files", "meeting", "compare": "Puts a starter in the message box and shows what to add or attach. Nothing is sent until you press Return."
-        default: "Puts a starter question in the message box. Nothing is sent until you press Return."
-        }
+        "Puts a starter in the message box and shows what to add or attach. Nothing is sent until you press Return."
     }
 
     private func choose(_ starter: Starter) {
@@ -149,12 +111,8 @@ struct EmptyStateView: View {
         case "compare":
             controller.beginComparison()
             guidance = controller.attachments.count == 2 ? nil : .chooseTwo
-        case "explain":
-            guidance = nil
-            controller.prefill("Explain how compound interest works in plain language, with a small example.")
         default:
-            guidance = nil
-            controller.prefill("Draft a polite two-paragraph email asking a colleague to move our meeting to Thursday afternoon.")
+            break
         }
     }
 

@@ -58,8 +58,10 @@ enum DS {
         static let controlSize: CGFloat = 32
         /// Width reserved for a leading icon in a row.
         static let iconWidth: CGFloat = 20
-        /// Starter tiles hold an icon and up to two lines of text.
-        static let tileMinHeight: CGFloat = 88
+        /// Starter tile: icon beside a title and one short line, 12 pt padding. Grows only when the text wraps.
+        static let tileMinHeight: CGFloat = 60
+        /// Share of an empty state's height kept free below its content, so the content sits slightly above centre.
+        static let emptyStateLift: CGFloat = 0.16
 
         static let sidebarMinWidth: CGFloat = 180
         static let sidebarIdealWidth: CGFloat = 200

@@ -26,6 +26,7 @@ struct DeskMateApp: App {
     @State private var navigation = AppNavigation()
 
     init() {
+        WindowLayoutMigration.run()
         let library = LibraryStore()
         _library = State(initialValue: library)
         _controller = State(initialValue: ConversationController(engine: SystemModelEngine(library: library)))
@@ -44,6 +45,23 @@ struct DeskMateApp: App {
         }
         .defaultSize(width: DS.Layout.windowDefaultWidth, height: DS.Layout.windowDefaultHeight)
         .commands { ConversationCommands(controller: controller, navigation: navigation) }
+    }
+}
+
+/// Forgets split-view widths that an earlier build saved. SwiftUI restores a saved sidebar width over the
+/// ideal width of its column, so a width saved while the ideal was larger kept the sidebar wider than designed.
+/// Runs once per layout version; after that, a width the person drags the sidebar to is kept again.
+enum WindowLayoutMigration {
+    /// Raise when a change to the window columns should discard widths saved by older builds.
+    static let version = 2
+    private static let versionKey = "DeskMateWindowLayoutVersion"
+
+    static func run(defaults: UserDefaults = .standard) {
+        guard defaults.integer(forKey: versionKey) < version else { return }
+        for key in defaults.dictionaryRepresentation().keys where key.contains("SplitView") {
+            defaults.removeObject(forKey: key)
+        }
+        defaults.set(version, forKey: versionKey)
     }
 }
 

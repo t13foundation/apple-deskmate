@@ -186,9 +186,7 @@ struct ConnectionsView: View {
                         .controlSize(.large)
                 }
                 .dmReadingColumn()
-                .padding(.vertical, DS.Spacing.xl)
-                .padding(.bottom, DS.Spacing.xxl * 2)
-                .frame(minHeight: proxy.size.height)
+                .dmEmptyStateAnchor(height: proxy.size.height)
             }
             .scrollBounceBehavior(.basedOnSize)
         }

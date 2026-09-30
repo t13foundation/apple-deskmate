@@ -2,7 +2,7 @@ import DeskMateCore
 import SwiftUI
 
 /// One rounded surface: the attachment strip (when there is one), then attach, the message field and Send or Stop
-/// on one row. A single line is 48 pt tall. Below it, one short supporting line.
+/// on one row. A single line is 48 pt tall (a 32 pt row in 8 pt padding). Below it, one short supporting line.
 struct ComposerView: View {
     @Bindable var controller: ConversationController
 
@@ -11,23 +11,17 @@ struct ComposerView: View {
             VStack(spacing: 0) {
                 AttachmentStrip(controller: controller)
 
-                HStack(alignment: .bottom, spacing: DS.Spacing.s) {
+                ComposerBar(
+                    text: $controller.draft,
+                    placeholder: placeholder,
+                    focusToken: controller.focusRequest,
+                    onSubmit: { controller.send() },
+                    onCancel: { controller.cancel() }
+                ) {
                     attachMenu
-
-                    ComposerTextView(
-                        text: $controller.draft,
-                        placeholder: placeholder,
-                        focusToken: controller.focusRequest,
-                        onSubmit: { controller.send() },
-                        onCancel: { controller.cancel() }
-                    )
-                    // A one-line field is centred against the 32 pt buttons; a taller field grows upward.
-                    .frame(minHeight: DS.Layout.controlSize, alignment: .center)
-                    .help("Return sends. Shift+Return adds a new line.")
-
+                } action: {
                     actionButton
                 }
-                .padding(DS.Spacing.s)
             }
             .dmSurface()
 
@@ -53,8 +47,10 @@ struct ComposerView: View {
                 .frame(width: DS.Layout.controlSize, height: DS.Layout.controlSize)
                 .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
+        .foregroundStyle(Color.dmAccent)
         .fixedSize()
         .disabled(controller.isBusy || controller.isLoadingAttachments)
         .help("Attach up to \(ConversationController.maxAttachments) files to this question, or compare two documents")
