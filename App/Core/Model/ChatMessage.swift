@@ -20,13 +20,52 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
     public var text: String
     public let createdAt: Date
     public var status: Status
+    /// Excerpts the answer cites. Each was really given to the model; unknown citations never appear here.
+    public var sources: [SourceCitation]
+    /// Citation IDs the model wrote that matched no excerpt it received. They were removed from the text.
+    public var removedCitations: [String]
+    /// How many excerpts the model was given while writing this answer, cited or not.
+    public var consultedCount: Int
+    /// Files attached to a question (user messages only).
+    public var attachments: [AttachmentSummary]
 
-    public init(id: UUID = UUID(), role: Role, text: String, createdAt: Date = Date(), status: Status = .complete) {
+    public init(
+        id: UUID = UUID(),
+        role: Role,
+        text: String,
+        createdAt: Date = Date(),
+        status: Status = .complete,
+        sources: [SourceCitation] = [],
+        removedCitations: [String] = [],
+        consultedCount: Int = 0,
+        attachments: [AttachmentSummary] = []
+    ) {
         self.id = id
         self.role = role
         self.text = text
         self.createdAt = createdAt
         self.status = status
+        self.sources = sources
+        self.removedCitations = removedCitations
+        self.consultedCount = consultedCount
+        self.attachments = attachments
+    }
+}
+
+/// What the transcript shows about a file attached to a question. Never contains the file's text.
+public struct AttachmentSummary: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let fileName: String
+    public let kind: FileKind
+
+    public init(id: UUID, fileName: String, kind: FileKind) {
+        self.id = id
+        self.fileName = fileName
+        self.kind = kind
+    }
+
+    public init(_ attachment: Attachment) {
+        self.init(id: attachment.id, fileName: attachment.fileName, kind: attachment.kind)
     }
 }
 

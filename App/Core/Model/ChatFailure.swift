@@ -69,7 +69,9 @@ public struct ChatFailure: Equatable, Sendable {
 
     public static func from(error: any Error) -> ChatFailure {
         guard let generationError = error as? LanguageModelSession.GenerationError else {
-            return generic(code: "unknownError")
+            // The error type name identifies the problem for support without exposing any content.
+            let detail = error as NSError
+            return generic(code: "unknownError:\(type(of: error)):\(detail.domain)#\(detail.code)")
         }
         switch generationError {
         case .exceededContextWindowSize:

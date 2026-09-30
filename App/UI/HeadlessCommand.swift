@@ -8,6 +8,7 @@ import Foundation
 enum HeadlessCommand {
     case diagnoseModel
     case ask(String)
+    case askAboutFiles(HeadlessFilesRequest)
     case usage(String?)
 
     init?(arguments: [String]) {
@@ -15,9 +16,17 @@ enum HeadlessCommand {
         switch first {
         case "--diagnose-model":
             self = .diagnoseModel
-        case "--ask":
-            let question = arguments.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            self = question.isEmpty ? .usage("--ask needs a question, e.g. --ask \"What is a budget?\"") : .ask(question)
+        case "--ask", "--compare":
+            let rest = first == "--ask" ? Array(arguments.dropFirst()) : arguments
+            switch HeadlessFilesRequest.parse(rest) {
+            case .success(let request)?:
+                self = .askAboutFiles(request)
+            case .failure(let problem)?:
+                self = .usage(problem.message)
+            case nil:
+                let question = rest.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                self = question.isEmpty ? .usage("--ask needs a question, e.g. --ask \"What is a budget?\"") : .ask(question)
+            }
         case "--help", "-h":
             self = .usage(nil)
         default:
@@ -31,12 +40,22 @@ enum HeadlessCommand {
         case .usage(let problem):
             if let problem { print("error: \(problem)") }
             print("""
-            usage: DeskMate [--diagnose-model | --ask "<question>" | --help]
+            usage: DeskMate [--diagnose-model | --ask "<question>" [file options] | --help]
               --diagnose-model  print model availability, English support and context size, then exit
               --ask "<q>"       run one real on-device generation and print timing and answer
+            file options (real on-device answers about files you name; nothing is saved):
+              --library <folder>         index this folder in memory and let the model search it
+              --attach <file>            attach a file to the question (repeat, up to 5)
+              --compare <fileA> <fileB>  compare two documents (the question is optional)
+              --follow-up "<q>"          ask another question in the same chat (repeatable)
+              --show-excerpts            also print the cited excerpts (never other document text)
+              --show-searches            print each search the model ran and which excerpts it received
             Without arguments DeskMate opens its window.
             """)
             return problem == nil ? 0 : 64
+
+        case .askAboutFiles(let request):
+            return await HeadlessFilesAsk.run(request)
 
         case .diagnoseModel:
             let snapshot = SystemModelProbe.snapshot()
