@@ -11,12 +11,34 @@ import Testing
     @Test func bothVariantsStateTheRealRuntime() {
         for (name, text) in variants {
             let lowered = text.lowercased()
-            #expect(lowered.contains("apple's on-device foundation model"), "\(name): names Apple's on-device model")
+            #expect(lowered.contains("on-device foundation model that apple provides in macos"), "\(name): names Apple's on-device model")
+            #expect(lowered.contains("apple develops that model"), "\(name): says Apple develops it")
             #expect(lowered.contains("foundation models framework"), "\(name): names the framework")
             #expect(lowered.contains("locally on this mac"), "\(name): says it runs locally")
             #expect(lowered.contains("no internet access"), "\(name): says there is no internet access")
             #expect(lowered.contains("no cloud model"), "\(name): says there is no cloud model")
-            #expect(lowered.contains("do not know further details"), "\(name): admits it does not know the version")
+        }
+    }
+
+    /// The model once invented "I am an open-source model and not owned by any company". DeskMate is told no
+    /// version, size, training data or licence, so the instructions must say so and forbid stating them.
+    @Test func bothVariantsAdmitWhatTheModelIsNotToldAndForbidInventing() {
+        for (name, text) in variants {
+            let lowered = text.lowercased()
+            #expect(lowered.contains("not told your exact version, parameter count, training data or licence"), "\(name): lists what is unknown")
+            #expect(lowered.contains("never call yourself open-source"), "\(name): forbids the open-source claim")
+            #expect(lowered.contains("do not know those details"), "\(name): says what to answer instead")
+            #expect(lowered.contains("do not say they are secret or undisclosed"), "\(name): does not dress ignorance up as secrecy")
+        }
+    }
+
+    @Test func noVariantClaimsASpecificVersionSizeOrLicence() {
+        // The only mentions allowed are the negated ones above: no digits followed by a size, no named licence.
+        for (name, text) in variants {
+            let lowered = text.lowercased()
+            for word in ["apache", "mit licen", "gpl", " billion", "b parameters", "version 1", "version 2"] {
+                #expect(!lowered.contains(word), "\(name) states \(word)")
+            }
         }
     }
 
