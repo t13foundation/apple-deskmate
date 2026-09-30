@@ -10,3 +10,7 @@ xcuserdata/
 *.p12
 *.mobileprovision
 artifacts/
+
+# Local scratch and bundle output
+.scratch/
+dist/
