@@ -35,7 +35,7 @@ struct DeskMateApp: App {
             RootView(controller: controller, library: library, navigation: navigation)
                 .tint(Color.dmAccent)
         }
-        .defaultSize(width: 980, height: 720)
+        .defaultSize(width: DS.Layout.windowDefaultWidth, height: DS.Layout.windowDefaultHeight)
         .commands { ConversationCommands(controller: controller, navigation: navigation) }
     }
 }

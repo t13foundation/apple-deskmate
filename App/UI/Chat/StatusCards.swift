@@ -13,45 +13,28 @@ enum SystemSettingsLink {
 }
 
 /// Persistent model status shown while the on-device model cannot answer. The draft stays in the composer.
-///
-/// Do not put `.fixedSize(vertical: true)` on the message text of the cards in this file. SwiftUI asks a
-/// container for its minimum size with a near-zero width; fixed-size text then wraps to one word per line, the
-/// chat column reports a minimum height taller than the window, and the banner and composer end up clipped off
-/// screen (the window looks blank while the accessibility tree is complete).
+/// A compact inline notice (see `DMNotice`); when the model is ready nothing is shown here, and the window
+/// subtitle says "Runs on your Mac".
 struct ReadinessBanner: View {
     let controller: ConversationController
     @State private var highlighted = false
 
     var body: some View {
         let readiness = controller.readiness
-        HStack(alignment: .top, spacing: DS.Spacing.m) {
-            Image(systemName: symbol(for: readiness))
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(Color.dmAccent)
-                .frame(width: 24)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: DS.Spacing.s) {
-                Text(readiness.title)
-                    .font(.dmSection)
-                Text(readiness.message)
-                    .font(.dmBody)
-                    .foregroundStyle(.secondary)
-                HStack(spacing: DS.Spacing.s) {
-                    if readiness.suggestsSystemSettings {
-                        Button("Open System Settings") { SystemSettingsLink.open() }
-                            .buttonStyle(.borderedProminent)
-                    }
-                    Button("Check again") { controller.refreshReadiness() }
-                        .buttonStyle(.bordered)
-                }
-                .controlSize(.regular)
+        DMNotice(
+            symbol: symbol(for: readiness),
+            tint: .dmWarning,
+            title: readiness.title,
+            message: readiness.message,
+            highlighted: highlighted
+        ) {
+            if readiness.suggestsSystemSettings {
+                Button("Open System Settings") { SystemSettingsLink.open() }
+                    .buttonStyle(.borderedProminent)
             }
-            Spacer(minLength: 0)
+            Button("Check again") { controller.refreshReadiness() }
+                .buttonStyle(.bordered)
         }
-        .padding(DS.Spacing.l)
-        .dmSurface(radius: DS.Radius.surface, highlighted: highlighted)
-        .accessibilityElement(children: .contain)
         .accessibilityLabel("Model status: \(readiness.title)")
         .onChange(of: controller.readinessNudge) {
             // The person tried to send while the model is unavailable: draw attention and announce.
@@ -82,48 +65,24 @@ struct FailureCard: View {
     let controller: ConversationController
 
     var body: some View {
-        HStack(alignment: .top, spacing: DS.Spacing.m) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.orange)
-                .frame(width: 24)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: DS.Spacing.s) {
-                Text(failure.title)
-                    .font(.dmSection)
-                Text(failure.message)
-                    .font(.dmBody)
-                    .foregroundStyle(.secondary)
-                if !failure.actions.isEmpty {
-                    HStack(spacing: DS.Spacing.s) {
-                        ForEach(Array(failure.actions.enumerated()), id: \.offset) { index, action in
-                            if index == 0 {
-                                Button(label(for: action)) { run(action) }
-                                    .buttonStyle(.borderedProminent)
-                            } else {
-                                Button(label(for: action)) { run(action) }
-                                    .buttonStyle(.bordered)
-                            }
-                        }
-                    }
+        DMNotice(
+            symbol: "exclamationmark.triangle",
+            tint: .dmWarning,
+            title: failure.title,
+            message: failure.message,
+            actionsBelow: true,
+            onDismiss: { controller.dismissFailure() }
+        ) {
+            ForEach(Array(failure.actions.enumerated()), id: \.offset) { index, action in
+                if index == 0 {
+                    Button(label(for: action)) { run(action) }
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button(label(for: action)) { run(action) }
+                        .buttonStyle(.bordered)
                 }
             }
-            Spacer(minLength: 0)
-
-            Button {
-                controller.dismissFailure()
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help("Dismiss")
-            .accessibilityLabel("Dismiss message")
         }
-        .padding(DS.Spacing.l)
-        .dmSurface(radius: DS.Radius.surface, emphasis: .orange)
-        .accessibilityElement(children: .contain)
         .accessibilityLabel("Problem: \(failure.title)")
         .onAppear { Announcer.post("\(failure.title). \(failure.message)") }
     }

@@ -15,17 +15,15 @@ struct TranscriptView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: DS.Spacing.xl) {
+                LazyVStack(alignment: .leading, spacing: DS.Spacing.l) {
                     ForEach(controller.messages) { message in
                         MessageView(message: message, isLast: message.id == controller.messages.last?.id, controller: controller)
                             .id(message.id)
                     }
                     Color.clear.frame(height: 1).id(bottomID)
                 }
-                .frame(maxWidth: DS.Layout.readingWidth, alignment: .leading)
-                .padding(.horizontal, DS.Spacing.panel)
-                .padding(.vertical, DS.Spacing.xl)
-                .frame(maxWidth: .infinity)
+                .dmReadingColumn()
+                .padding(.vertical, DS.Spacing.l)
             }
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentSize.height - geometry.visibleRect.maxY
@@ -79,7 +77,7 @@ struct UserMessageView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: DS.Spacing.xxl * 2)
+            Spacer(minLength: DS.Spacing.xxl)
             VStack(alignment: .trailing, spacing: DS.Spacing.s) {
                 Text(text)
                     .font(.dmBody)
@@ -88,11 +86,11 @@ struct UserMessageView: View {
                     .padding(.vertical, DS.Spacing.m)
                     .background(
                         RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
-                            .fill(Color.dmAccent.opacity(0.14))
+                            .fill(Color.dmUserBubble)
                     )
                     .accessibilityLabel("You: \(text)")
                 if !attachments.isEmpty {
-                    HStack(spacing: DS.Spacing.xs + 2) {
+                    HStack(spacing: DS.Spacing.xs) {
                         ForEach(attachments) { attachment in
                             Label(attachment.fileName, systemImage: attachment.kind == .pdf ? "doc.richtext" : "doc.text")
                                 .font(.dmCaption)
@@ -101,12 +99,13 @@ struct UserMessageView: View {
                                 .truncationMode(.middle)
                                 .padding(.horizontal, DS.Spacing.s)
                                 .padding(.vertical, DS.Spacing.xs)
-                                .background(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+                                .background(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: DS.Stroke.hairline))
                                 .accessibilityLabel("Attached: \(attachment.fileName)")
                         }
                     }
                 }
             }
+            .frame(maxWidth: DS.Layout.bubbleMaxWidth, alignment: .trailing)
         }
     }
 }
@@ -137,12 +136,12 @@ struct AssistantMessageView: View {
     }
 
     private var header: some View {
-        HStack(spacing: DS.Spacing.xs + 2) {
+        HStack(spacing: DS.Spacing.xs) {
             Image(systemName: "sparkle")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.dmCaption.weight(.semibold))
                 .foregroundStyle(Color.dmAccent)
                 .accessibilityHidden(true)
-            Text("DeskMate")
+            Text("DeskMate · On this Mac")
                 .font(.dmCaption.weight(.semibold))
                 .foregroundStyle(.secondary)
         }
@@ -169,7 +168,7 @@ struct AssistantMessageView: View {
         case .failed:
             Label(message.text.isEmpty ? "No answer" : "The answer is incomplete", systemImage: "exclamationmark.triangle")
                 .font(.dmCaption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.dmWarning)
         default:
             EmptyView()
         }
@@ -201,6 +200,7 @@ struct AssistantMessageView: View {
             }
         }
         .buttonStyle(.borderless)
+        .controlSize(.small)
         .labelStyle(.titleAndIcon)
         .font(.dmCaption)
         .foregroundStyle(.secondary)

@@ -3,31 +3,24 @@ import DeskMateCore
 import SwiftUI
 
 /// My files: the folders and files DeskMate may read, what was found in them, and what was skipped and why.
+///
+/// Native layout in the shared reading column: the actions live in the window toolbar, sources are rows in
+/// one grouped list with status badges, and skipped files sit in a collapsible section with their reasons.
 struct LibraryView: View {
     @Environment(LibraryStore.self) private var library
     @State private var confirmingClear = false
+    @State private var showsSkipped = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.Spacing.xl) {
-                header
-                actions
-                notices
-                if library.needsRefresh { staleBanner }
-                if library.isEmpty {
-                    emptyState
-                } else {
-                    ForEach(library.sources) { source in
-                        SourceCard(source: source)
-                    }
-                    limitsFootnote
-                }
+        Group {
+            if library.isEmpty {
+                emptyState
+            } else {
+                content
             }
-            .frame(maxWidth: DS.Layout.readingWidth, alignment: .leading)
-            .padding(DS.Spacing.panel)
-            .frame(maxWidth: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .toolbar { toolbar }
         .confirmationDialog("Clear My files?", isPresented: $confirmingClear) {
             Button("Clear library", role: .destructive) { library.clear() }
             Button("Cancel", role: .cancel) {}
@@ -36,127 +29,151 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: Sections
+    // MARK: Toolbar
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            Text("My files")
-                .font(.dmTitle)
-                .accessibilityAddTraits(.isHeader)
-            Text("DeskMate reads only the folders and files you add here, and only on your Mac. Ask about them in normal chat and answers show where they came from.")
-                .font(.dmBody)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var actions: some View {
-        HStack(spacing: DS.Spacing.s) {
-            Button {
-                addSources()
-            } label: {
-                Label("Add folder or files…", systemImage: "plus")
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            if library.isWorking {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Reading your files")
             }
-            .buttonStyle(.borderedProminent)
+            Button {
+                addFolders()
+            } label: {
+                Label("Add folder", systemImage: "folder.badge.plus")
+            }
             .disabled(library.isWorking)
-            .help("Choose folders or files DeskMate may read")
+            .help("Choose folders DeskMate may read")
+
+            Button {
+                addFiles()
+            } label: {
+                Label("Add files", systemImage: "doc.badge.plus")
+            }
+            .disabled(library.isWorking)
+            .help("Choose individual files DeskMate may read")
 
             Button {
                 Task { await library.refresh() }
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
             .disabled(library.isEmpty || library.isWorking)
             .help("Look for added, changed and removed files")
 
-            Button(role: .destructive) {
-                confirmingClear = true
+            Menu {
+                Button("Clear library…", role: .destructive) { confirmingClear = true }
+                    .disabled(library.isEmpty || library.isWorking)
             } label: {
-                Label("Clear library", systemImage: "trash")
+                Label("More", systemImage: "ellipsis.circle")
             }
-            .buttonStyle(.bordered)
-            .disabled(library.isEmpty || library.isWorking)
             .help("Forget every source and delete the search index. Your files are not touched.")
-
-            if library.isWorking {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(.leading, DS.Spacing.xs)
-                    .accessibilityLabel("Reading your files")
-            }
-            Spacer(minLength: 0)
         }
-        .controlSize(.regular)
+    }
+
+    // MARK: Content
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Spacing.l) {
+                Text("DeskMate reads only what you add here, on your Mac. Ask about it in normal chat and answers show their sources.")
+                    .font(.dmBody)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                notices
+                if library.needsRefresh { staleNotice }
+
+                sourcesGroup
+                if !library.skippedFiles.isEmpty { skippedGroup }
+                limitsFootnote
+            }
+            .dmReadingColumn()
+            .padding(.vertical, DS.Spacing.l)
+        }
     }
 
     @ViewBuilder private var notices: some View {
         if !library.notices.isEmpty {
-            VStack(alignment: .leading, spacing: DS.Spacing.s) {
-                ForEach(Array(library.notices.enumerated()), id: \.offset) { _, notice in
-                    Label(notice, systemImage: "info.circle")
-                        .font(.dmBody)
-                        .foregroundStyle(.secondary)
-                }
-                Button("Dismiss") { library.dismissNotices() }
-                    .buttonStyle(.borderless)
-                    .font(.dmCaption)
-            }
-            .padding(DS.Spacing.l)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .dmSurface(radius: DS.Radius.surface)
-            .accessibilityElement(children: .contain)
+            DMNotice(
+                symbol: "info.circle",
+                tint: .dmAccent,
+                title: library.notices.count == 1 ? library.notices[0] : "\(library.notices.count) things to know",
+                message: library.notices.count > 1 ? library.notices.joined(separator: "\n") : nil,
+                onDismiss: { library.dismissNotices() }
+            )
             .accessibilityLabel("Notices")
         }
     }
 
-    private var staleBanner: some View {
-        HStack(spacing: DS.Spacing.m) {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .foregroundStyle(.orange)
-                .accessibilityHidden(true)
-            Text("Some files changed or disappeared since the last refresh. Changed files are not used until you refresh.")
-                .font(.dmBody)
-            Spacer(minLength: 0)
+    private var staleNotice: some View {
+        DMNotice(
+            symbol: "arrow.triangle.2.circlepath",
+            tint: .dmWarning,
+            title: "Some files changed or disappeared",
+            message: "Changed files are not used until you refresh."
+        ) {
             Button("Refresh") { Task { await library.refresh() } }
                 .buttonStyle(.bordered)
                 .disabled(library.isWorking)
         }
-        .padding(DS.Spacing.l)
-        .dmSurface(radius: DS.Radius.surface, emphasis: .orange)
-        .accessibilityElement(children: .contain)
     }
 
-    private var emptyState: some View {
-        VStack(spacing: DS.Spacing.m) {
-            Image(systemName: "folder.badge.plus")
-                .font(.system(size: 28, weight: .medium))
-                .foregroundStyle(Color.dmAccent)
-                .accessibilityHidden(true)
-            Text("Nothing added yet")
+    private var sourcesGroup: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.s) {
+            Text("Folders and files")
                 .font(.dmSection)
-            Text("Add a folder of notes, plans or reports, or single files. DeskMate reads text, Markdown and text-based PDF files.")
-                .font(.dmBody)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Add folder or files…") { addSources() }
-                .buttonStyle(.borderedProminent)
+                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 0) {
+                ForEach(Array(library.sources.enumerated()), id: \.element.id) { index, source in
+                    if index > 0 { Divider() }
+                    SourceRow(source: source)
+                }
+            }
+            .dmSurface(radius: DS.Radius.control)
         }
-        .padding(DS.Spacing.xl)
-        .frame(maxWidth: .infinity)
-        .dmSurface(radius: DS.Radius.surface)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("My files is empty")
+    }
+
+    private var skippedGroup: some View {
+        let skipped = library.skippedFiles
+        return DisclosureGroup(isExpanded: $showsSkipped) {
+            VStack(alignment: .leading, spacing: DS.Spacing.m) {
+                ForEach(skipped) { file in
+                    SkippedFileRow(file: file, sourceName: sourceName(for: file))
+                }
+            }
+            .padding(.top, DS.Spacing.s)
+        } label: {
+            HStack(spacing: DS.Spacing.s) {
+                Text("Skipped files")
+                    .font(.dmBody.weight(.medium))
+                DMBadge(text: "\(skipped.count)", tint: .dmWarning)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .padding(DS.Spacing.m)
+        .dmSurface(radius: DS.Radius.control)
+        .accessibilityLabel("Skipped files, \(skipped.count)")
+        .accessibilityHint("Shows which files DeskMate can’t search and why")
     }
 
     private var limitsFootnote: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
             Text("\(library.searchableFiles.count) of \(LibraryLimits.maxFiles) files searchable" + refreshedText)
-                .font(.dmCaption)
-                .foregroundStyle(.secondary)
             Text("Limits: \(LibraryLimits.maxFiles) files, PDFs up to 10 MB and \(LibraryLimits.maxPDFPages) pages, text and Markdown up to 1 MB. Scanned PDFs need OCR, which DeskMate does not do.")
-                .font(.dmCaption)
-                .foregroundStyle(.secondary)
+            if ignoredCount > 0 {
+                Text("DeskMate ignores \(ignoredCount) more files of other types.")
+            }
         }
+        .font(.dmCaption)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var ignoredCount: Int {
+        library.sources.reduce(0) { $0 + $1.omittedIgnoredCount }
     }
 
     private var refreshedText: String {
@@ -164,18 +181,62 @@ struct LibraryView: View {
         return ". Last refresh: \(report.summary)"
     }
 
-    private func addSources() {
-        let urls = FilePicker.chooseSources()
+    private func sourceName(for file: IndexedFile) -> String? {
+        guard library.sources.count > 1 else { return nil }
+        return library.sources.first { $0.id == file.sourceID }?.displayName
+    }
+
+    // MARK: Empty state
+
+    private var emptyState: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: DS.Spacing.xl) {
+                    DMEmptyHeader(
+                        symbol: "folder.badge.plus",
+                        title: "Nothing added yet",
+                        subtitle: "Add a folder of notes, plans or reports, or single files. DeskMate reads text, Markdown and text-based PDF files."
+                    )
+                    HStack(spacing: DS.Spacing.s) {
+                        Button("Add folder…") { addFolders() }
+                            .buttonStyle(.borderedProminent)
+                        Button("Add files…") { addFiles() }
+                            .buttonStyle(.bordered)
+                    }
+                    .controlSize(.large)
+                    .disabled(library.isWorking)
+                }
+                .dmReadingColumn()
+                .padding(.vertical, DS.Spacing.xl)
+                .padding(.bottom, DS.Spacing.xxl * 2)
+                .frame(minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("My files is empty")
+    }
+
+    // MARK: Actions
+
+    private func addFolders() {
+        let urls = FilePicker.chooseFolders()
+        guard !urls.isEmpty else { return }
+        Task { await library.addSources(urls: urls) }
+    }
+
+    private func addFiles() {
+        let urls = FilePicker.chooseSourceFiles()
         guard !urls.isEmpty else { return }
         Task { await library.addSources(urls: urls) }
     }
 }
 
-/// One folder or file the person added, with its files.
-private struct SourceCard: View {
+/// One folder or file the person added: name, status badges and a remove button. It opens to its searchable files.
+private struct SourceRow: View {
     let source: LibrarySource
     @Environment(LibraryStore.self) private var library
-    @State private var showsSearchable = false
+    @State private var expanded = false
 
     var body: some View {
         let state = library.state(of: source)
@@ -183,83 +244,75 @@ private struct SourceCard: View {
         let searchable = files.filter(\.isIndexed)
         let skipped = files.filter { !$0.isIndexed }
 
-        VStack(alignment: .leading, spacing: DS.Spacing.m) {
-            HStack(alignment: .top, spacing: DS.Spacing.m) {
-                Image(systemName: source.kind == .folder ? "folder" : "doc.text")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color.dmAccent)
-                    .frame(width: 24)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                    Text(source.displayName)
-                        .font(.dmSection)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(summary(state: state, searchable: searchable.count, skipped: skipped.count))
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: DS.Spacing.m) {
+                if case .unavailable(let reason) = state {
+                    Label(reason.explanation, systemImage: "exclamationmark.triangle")
+                        .font(.dmCaption)
+                        .foregroundStyle(Color.dmWarning)
+                        .accessibilityLabel("\(reason.label). \(reason.explanation)")
+                }
+                ForEach(searchable) { file in
+                    SearchableFileRow(file: file, canReveal: state.isAvailable)
+                }
+                if searchable.isEmpty, state.isAvailable {
+                    Text("No searchable files in this \(source.kind == .folder ? "folder" : "file").")
                         .font(.dmCaption)
                         .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 0)
-                Button(role: .destructive) {
-                    library.remove(sourceID: source.id)
-                } label: {
-                    Label("Remove", systemImage: "minus.circle")
-                }
-                .buttonStyle(.bordered)
-                .disabled(library.isWorking)
-                .help("Stop using this \(source.kind == .folder ? "folder" : "file"). Your files are not deleted.")
-                .accessibilityLabel("Remove \(source.displayName) from My files")
             }
-
-            if case .unavailable(let reason) = state {
-                Label(reason.explanation, systemImage: "exclamationmark.triangle")
-                    .font(.dmBody)
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("\(reason.label). \(reason.explanation)")
-            }
-
-            if !skipped.isEmpty {
-                VStack(alignment: .leading, spacing: DS.Spacing.s) {
-                    Text("Not searchable (\(skipped.count))")
-                        .font(.dmCaption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ForEach(skipped) { file in
-                        SkippedFileRow(file: file)
-                    }
-                    if source.omittedIgnoredCount > 0 {
-                        Text("And \(source.omittedIgnoredCount) more files of other types, which DeskMate ignores.")
-                            .font(.dmCaption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            if !searchable.isEmpty {
-                DisclosureGroup(isExpanded: $showsSearchable) {
-                    VStack(alignment: .leading, spacing: DS.Spacing.s) {
-                        ForEach(searchable) { file in
-                            SearchableFileRow(file: file, canReveal: state.isAvailable)
-                        }
-                    }
-                    .padding(.top, DS.Spacing.s)
-                } label: {
-                    Text("Searchable files (\(searchable.count))")
-                        .font(.dmBody)
-                }
-            }
+            .padding(.top, DS.Spacing.s)
+        } label: {
+            header(state: state, searchable: searchable.count, skipped: skipped.count)
         }
-        .padding(DS.Spacing.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .dmSurface(radius: DS.Radius.surface, emphasis: state.isAvailable ? nil : .orange)
+        .padding(DS.Spacing.m)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Source: \(source.displayName)")
     }
 
-    private func summary(state: SourceState, searchable: Int, skipped: Int) -> String {
+    private func header(state: SourceState, searchable: Int, skipped: Int) -> some View {
+        HStack(spacing: DS.Spacing.m) {
+            Image(systemName: source.kind == .folder ? "folder" : "doc.text")
+                .font(.dmBody)
+                .foregroundStyle(Color.dmAccent)
+                .frame(width: DS.Layout.iconWidth)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(source.displayName)
+                    .font(.dmBody.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle(state: state))
+                    .font(.dmCaption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: DS.Spacing.s)
+            if case .unavailable = state {
+                DMBadge(text: "Unavailable", tint: .dmWarning)
+            } else {
+                DMBadge(text: "\(searchable) searchable", tint: .dmAccent)
+                if skipped > 0 {
+                    DMBadge(text: "\(skipped) skipped", tint: .dmWarning)
+                }
+            }
+            Button(role: .destructive) {
+                library.remove(sourceID: source.id)
+            } label: {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .disabled(library.isWorking)
+            .help("Stop using this \(source.kind == .folder ? "folder" : "file"). Your files are not deleted.")
+            .accessibilityLabel("Remove \(source.displayName) from My files")
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func subtitle(state: SourceState) -> String {
         if case .unavailable(let reason) = state { return reason.label }
-        var parts = ["\(searchable) searchable"]
-        if skipped > 0 { parts.append("\(skipped) not searchable") }
-        return parts.joined(separator: " · ")
+        return source.kind == .folder ? "Folder" : "File"
     }
 }
 
@@ -272,7 +325,7 @@ private struct SearchableFileRow: View {
         HStack(spacing: DS.Spacing.s) {
             Image(systemName: file.kind == .pdf ? "doc.richtext" : "doc.text")
                 .foregroundStyle(.secondary)
-                .frame(width: 20)
+                .frame(width: DS.Layout.iconWidth)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
                 Text(file.relativePath)
@@ -311,16 +364,18 @@ private struct SearchableFileRow: View {
 
 private struct SkippedFileRow: View {
     let file: IndexedFile
+    /// Shown in front of the path when more than one source is in My files.
+    let sourceName: String?
 
     var body: some View {
         if let reason = file.skip {
             HStack(alignment: .top, spacing: DS.Spacing.s) {
                 Image(systemName: "exclamationmark.circle")
-                    .foregroundStyle(.orange)
-                    .frame(width: 20)
+                    .foregroundStyle(Color.dmWarning)
+                    .frame(width: DS.Layout.iconWidth)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(file.relativePath)
+                    Text(displayPath)
                         .font(.dmBody)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -331,7 +386,11 @@ private struct SkippedFileRow: View {
                 Spacer(minLength: 0)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(file.relativePath) is not searchable. \(reason.label). \(reason.explanation)")
+            .accessibilityLabel("\(displayPath) is not searchable. \(reason.label). \(reason.explanation)")
         }
+    }
+
+    private var displayPath: String {
+        sourceName.map { "\($0) / \(file.relativePath)" } ?? file.relativePath
     }
 }

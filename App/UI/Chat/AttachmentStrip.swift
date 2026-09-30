@@ -19,6 +19,7 @@ enum AttachActions {
 }
 
 /// The files attached to the question (at most five), the comparison state, and why a file was not attached.
+/// Drawn inside the composer surface, above the field.
 struct AttachmentStrip: View {
     let controller: ConversationController
 
@@ -56,14 +57,12 @@ struct AttachmentStrip: View {
                                 .font(.dmCaption)
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 1)
-                    }
+                        }
                 }
                 ForEach(Array(controller.attachmentNotices.enumerated()), id: \.offset) { _, notice in
                     Label(notice, systemImage: "exclamationmark.triangle")
                         .font(.dmCaption)
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(Color.dmWarning)
                 }
                 if !controller.attachmentNotices.isEmpty {
                     Button("Dismiss") { controller.dismissAttachmentNotices() }
@@ -71,7 +70,9 @@ struct AttachmentStrip: View {
                         .font(.dmCaption)
                 }
             }
-            .padding(.horizontal, DS.Spacing.xs)
+            .padding(.horizontal, DS.Spacing.s)
+            .padding(.top, DS.Spacing.s)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Attached files")
         }
@@ -87,7 +88,7 @@ struct AttachmentStrip: View {
     }
 
     private func chip(_ attachment: Attachment) -> some View {
-        HStack(spacing: DS.Spacing.xs + 2) {
+        HStack(spacing: DS.Spacing.xs) {
             Image(systemName: attachment.kind == .pdf ? "doc.richtext" : "doc.text")
                 .font(.dmCaption)
                 .foregroundStyle(.secondary)
@@ -96,7 +97,7 @@ struct AttachmentStrip: View {
                 .font(.dmCaption)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: 220)
+                .frame(maxWidth: DS.Layout.readingWidth / 3)
             Button {
                 controller.removeAttachment(attachment.id)
             } label: {
@@ -109,7 +110,7 @@ struct AttachmentStrip: View {
         }
         .padding(.horizontal, DS.Spacing.s)
         .padding(.vertical, DS.Spacing.xs)
-        .background(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+        .background(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: DS.Stroke.hairline))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Attached: \(attachment.fileName)")
     }

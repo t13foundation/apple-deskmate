@@ -12,14 +12,26 @@ enum FilePicker {
         return types
     }
 
-    /// Folders and files to add to My files.
-    static func chooseSources() -> [URL] {
+    /// Folders to add to My files.
+    static func chooseFolders() -> [URL] {
         let panel = NSOpenPanel()
-        panel.title = "Add to My files"
-        panel.message = "Choose folders or files DeskMate may read. It reads only what you choose, and nothing leaves your Mac."
+        panel.title = "Add folders to My files"
+        panel.message = "Choose folders DeskMate may read. It reads only what you choose, and nothing leaves your Mac."
+        panel.prompt = "Add"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        return panel.runModal() == .OK ? panel.urls : []
+    }
+
+    /// Individual files to add to My files.
+    static func chooseSourceFiles() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.title = "Add files to My files"
+        panel.message = "Choose files DeskMate may read. It reads only what you choose, and nothing leaves your Mac."
         panel.prompt = "Add"
         panel.canChooseFiles = true
-        panel.canChooseDirectories = true
+        panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = documentTypes
         return panel.runModal() == .OK ? panel.urls : []

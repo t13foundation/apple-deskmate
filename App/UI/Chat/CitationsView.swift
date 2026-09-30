@@ -10,7 +10,7 @@ struct CitationsView: View {
 
     var body: some View {
         if message.status != .streaming, hasContent {
-            VStack(alignment: .leading, spacing: DS.Spacing.s) {
+            VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                 if !message.sources.isEmpty {
                     DisclosureGroup(isExpanded: $expanded) {
                         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
@@ -24,6 +24,7 @@ struct CitationsView: View {
                             .font(.dmCaption.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
+                    .font(.dmCaption)
                     .accessibilityLabel("Sources, \(message.sources.count)")
                     .accessibilityHint("Shows where this answer came from")
                 } else if message.consultedCount > 0 {
@@ -34,7 +35,7 @@ struct CitationsView: View {
                 if !message.removedCitations.isEmpty {
                     Label("Removed \(message.removedCitations.count == 1 ? "a reference" : "\(message.removedCitations.count) references") to an excerpt DeskMate never gave the model (\(message.removedCitations.joined(separator: ", "))).", systemImage: "exclamationmark.triangle")
                         .font(.dmCaption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.dmWarning)
                 }
             }
         }
@@ -52,7 +53,7 @@ struct CitationsView: View {
                 Text(citation.id)
                     .font(.dmCaption.weight(.semibold))
                     .foregroundStyle(Color.dmAccent)
-                    .frame(minWidth: 28, alignment: .leading)
+                    .frame(minWidth: DS.Spacing.xl, alignment: .leading)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(citation.title)
                         .font(.dmCaption.weight(.medium))

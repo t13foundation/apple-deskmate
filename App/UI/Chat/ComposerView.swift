@@ -1,39 +1,39 @@
 import DeskMateCore
 import SwiftUI
 
+/// One rounded surface: the attachment strip (when there is one), then attach, the message field and Send or Stop
+/// on one row. A single line is 48 pt tall. Below it, one short supporting line.
 struct ComposerView: View {
     @Bindable var controller: ConversationController
 
     var body: some View {
         VStack(spacing: DS.Spacing.s) {
-            AttachmentStrip(controller: controller)
+            VStack(spacing: 0) {
+                AttachmentStrip(controller: controller)
 
-            HStack(alignment: .bottom, spacing: DS.Spacing.s) {
-                attachMenu
-                    .padding(.bottom, DS.Spacing.xs + 2)
+                HStack(alignment: .bottom, spacing: DS.Spacing.s) {
+                    attachMenu
 
-                ComposerTextView(
-                    text: $controller.draft,
-                    placeholder: placeholder,
-                    focusToken: controller.focusRequest,
-                    onSubmit: { controller.send() },
-                    onCancel: { controller.cancel() }
-                )
-                .padding(.leading, DS.Spacing.xs)
-                .padding(.vertical, DS.Spacing.xs)
+                    ComposerTextView(
+                        text: $controller.draft,
+                        placeholder: placeholder,
+                        focusToken: controller.focusRequest,
+                        onSubmit: { controller.send() },
+                        onCancel: { controller.cancel() }
+                    )
+                    // A one-line field is centred against the 32 pt buttons; a taller field grows upward.
+                    .frame(minHeight: DS.Layout.controlSize, alignment: .center)
+                    .help("Return sends. Shift+Return adds a new line.")
 
-                actionButton
-                    .padding(.bottom, DS.Spacing.xs)
+                    actionButton
+                }
+                .padding(DS.Spacing.s)
             }
-            .padding(.horizontal, DS.Spacing.m)
-            .padding(.vertical, DS.Spacing.xs)
-            .dmSurface(radius: DS.Radius.surface)
+            .dmSurface()
 
-            Text(footnote)
-                .font(.dmCaption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DS.Spacing.xs)
+            Text("Answers come from Apple’s on-device model and can be wrong.")
+                .dmFootnote()
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -49,7 +49,9 @@ struct ComposerView: View {
             Button("Compare two documents…") { AttachActions.startComparison(with: controller) }
         } label: {
             Image(systemName: "paperclip")
-                .font(.system(size: 15, weight: .medium))
+                .font(.dmBody)
+                .frame(width: DS.Layout.controlSize, height: DS.Layout.controlSize)
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -90,9 +92,5 @@ struct ComposerView: View {
         if controller.isComparing, controller.attachments.count != 2 { return "Choose two documents to compare" }
         if !controller.readiness.isReady { return "The on-device model isn’t available yet" }
         return "Send (Return)"
-    }
-
-    private var footnote: String {
-        "Return to send, Shift+Return for a new line. Answers come from Apple’s on-device model and can be wrong."
     }
 }

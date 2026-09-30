@@ -60,7 +60,7 @@ struct SourceViewer: View {
             if citation.truncated {
                 Label("This excerpt was too long for the chat and was cut where marked.", systemImage: "scissors")
                     .font(.dmCaption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.dmWarning)
             }
 
             ScrollView {

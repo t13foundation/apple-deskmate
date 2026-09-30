@@ -8,7 +8,7 @@ struct MarkdownText: View {
 
     var body: some View {
         Text(MarkdownStyler.attributed(markdown))
-            .lineSpacing(3)
+            .lineSpacing(DS.Spacing.xs)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -16,8 +16,10 @@ struct MarkdownText: View {
 }
 
 enum MarkdownStyler {
-    private static let bodySize: CGFloat = 14
-    private static let codeBackground = Color.primary.opacity(0.08)
+    private static let bodySize = DS.FontSize.body
+    /// Monospaced text is set one step down (12 on 14) so it does not look larger than the prose around it.
+    private static let codeSize = DS.FontSize.caption
+    private static let codeBackground = Color.dmSubtleFill
 
     static func attributed(_ markdown: String) -> AttributedString {
         let blocks = MarkdownParser.blocks(from: markdown)
@@ -52,7 +54,7 @@ enum MarkdownStyler {
             var gap = AttributedString("\n")
             var small = AttributedString("\n")
             gap.font = .system(size: bodySize)
-            small.font = .system(size: 6)
+            small.font = .system(size: DS.Spacing.s)
             gap.append(small)
             return gap
         }
@@ -68,7 +70,7 @@ enum MarkdownStyler {
             return content
 
         case .heading(let level):
-            let size: CGFloat = level <= 1 ? 18 : (level == 2 ? 16 : bodySize)
+            let size = level <= 2 ? DS.FontSize.section : bodySize
             styleInline(&content, size: size, weight: .semibold)
             return content
 
@@ -83,7 +85,7 @@ enum MarkdownStyler {
 
         case .codeBlock:
             var code = AttributedString(String(content.characters))
-            code.font = .system(size: bodySize - 1, design: .monospaced)
+            code.font = .system(size: codeSize, design: .monospaced)
             code.backgroundColor = codeBackground
             return code
 
@@ -107,7 +109,7 @@ enum MarkdownStyler {
             if intent.contains(.stronglyEmphasized) { font = Font.system(size: size, weight: .semibold) }
             if intent.contains(.emphasized) { font = font.italic() }
             if intent.contains(.code) {
-                font = .system(size: size - 1, design: .monospaced)
+                font = .system(size: codeSize, design: .monospaced)
                 content[range].backgroundColor = codeBackground
             }
             if intent.contains(.strikethrough) { content[range].strikethroughStyle = .single }

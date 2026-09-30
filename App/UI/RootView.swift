@@ -9,17 +9,28 @@ struct RootView: View {
     let library: LibraryStore
     @Bindable var navigation: AppNavigation
 
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var wasCompact: Bool?
+
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(controller: controller, navigation: navigation)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
+                .navigationSplitViewColumnWidth(
+                    min: DS.Layout.sidebarMinWidth,
+                    ideal: DS.Layout.sidebarIdealWidth,
+                    max: DS.Layout.sidebarMaxWidth
+                )
         } detail: {
             switch navigation.section {
             case .chat:
                 ChatView(controller: controller)
                     .inspector(isPresented: viewerIsPresented) {
                         SourceViewer(navigation: navigation)
-                            .inspectorColumnWidth(min: 280, ideal: 340, max: 520)
+                            .inspectorColumnWidth(
+                                min: DS.Layout.viewerMinWidth,
+                                ideal: DS.Layout.viewerIdealWidth,
+                                max: DS.Layout.viewerMaxWidth
+                            )
                     }
                     .navigationTitle(controller.conversationTitle)
                     .navigationSubtitle(controller.readiness.isReady ? "Runs on your Mac" : controller.readiness.statusLabel)
@@ -30,19 +41,31 @@ struct RootView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    startNewChat()
-                } label: {
-                    Label("New chat", systemImage: "square.and.pencil")
+            // With the sidebar visible, New chat lives there. Hidden, it stays one click away here.
+            if columnVisibility == .detailOnly {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        startNewChat()
+                    } label: {
+                        Label("New chat", systemImage: "square.and.pencil")
+                    }
+                    .help("Start a new chat (⌘N)")
+                    .accessibilityLabel("New chat")
                 }
-                .help("Start a new chat (⌘N)")
-                .accessibilityLabel("New chat")
             }
         }
         .environment(library)
         .environment(navigation)
-        .frame(minWidth: 640, minHeight: 520)
+        .frame(minWidth: DS.Layout.windowMinWidth, minHeight: DS.Layout.windowMinHeight)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            // A narrow window starts with the sidebar hidden. Only crossing the threshold changes it,
+            // so a person's own show or hide choice is left alone while they resize within one range.
+            let isCompact = width < DS.Layout.sidebarCollapseWidth
+            if wasCompact != isCompact {
+                wasCompact = isCompact
+                columnVisibility = isCompact ? .detailOnly : .all
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // The person may have just turned Apple Intelligence on in System Settings.
             controller.refreshReadiness()
@@ -67,35 +90,35 @@ struct RootView: View {
     }
 }
 
+/// Sidebar rows: New chat, the current conversation (once there is one), and My files.
+/// Conversations are not stored yet, so there is no Recent list to show.
 struct SidebarView: View {
     let controller: ConversationController
     @Bindable var navigation: AppNavigation
 
+    private enum Item: Hashable {
+        case newChat
+        case current
+        case files
+    }
+
     var body: some View {
         List(selection: selection) {
             Section {
-                Button {
-                    controller.newChat()
-                    navigation.section = .chat
-                } label: {
-                    Label("New chat", systemImage: "square.and.pencil")
-                        .font(.dmBody)
+                Label("New chat", systemImage: "square.and.pencil")
+                    .tag(Item.newChat)
+                    .accessibilityLabel("New chat")
+                    .accessibilityHint("Clears the conversation and starts fresh")
+                if controller.hasConversation {
+                    Label(controller.conversationTitle, systemImage: "bubble.left")
+                        .lineLimit(1)
+                        .tag(Item.current)
+                        .accessibilityLabel("Current conversation: \(controller.conversationTitle)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("New chat")
-                .accessibilityHint("Clears the conversation and starts fresh")
-            }
-            Section("Current") {
-                Label(controller.conversationTitle, systemImage: "bubble.left")
-                    .font(.dmBody)
-                    .lineLimit(1)
-                    .tag(AppSection.chat)
-                    .accessibilityLabel("Current conversation: \(controller.conversationTitle)")
             }
             Section("Library") {
                 Label("My files", systemImage: "folder")
-                    .font(.dmBody)
-                    .tag(AppSection.files)
+                    .tag(Item.files)
                     .accessibilityLabel("My files")
                     .accessibilityHint("Shows the folders and files DeskMate may read")
             }
@@ -103,10 +126,27 @@ struct SidebarView: View {
         .listStyle(.sidebar)
     }
 
-    private var selection: Binding<AppSection?> {
+    private var selection: Binding<Item?> {
         Binding(
-            get: { navigation.section },
-            set: { if let section = $0 { navigation.section = section } }
+            get: {
+                switch navigation.section {
+                case .files: .files
+                case .chat: controller.hasConversation ? .current : .newChat
+                }
+            },
+            set: { item in
+                switch item {
+                case .newChat:
+                    if controller.hasConversation { controller.newChat() }
+                    navigation.section = .chat
+                case .current:
+                    navigation.section = .chat
+                case .files:
+                    navigation.section = .files
+                case nil:
+                    break
+                }
+            }
         )
     }
 }
