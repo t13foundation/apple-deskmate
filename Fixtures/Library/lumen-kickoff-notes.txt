@@ -1,0 +1,19 @@
+Project Lumen - Kickoff meeting notes
+Date: 12 March 2026
+Attendees: Priya Raman (project lead), Tomas Berg (engineering), Ana Costa (finance), Jonas Weber (operations)
+
+Purpose
+Project Lumen replaces the manual lighting schedules in the Lisbon office with sensor-driven lighting control.
+
+Decisions
+1. The budget of EUR 48,000 was approved by Ana Costa.
+2. The launch target is 14 June 2026.
+3. The pilot runs on the third floor of the Lisbon office before any wider rollout.
+
+Action items
+- Tomas Berg: deliver the prototype firmware by 30 April 2026.
+- Priya Raman: send the vendor shortlist by 27 March 2026.
+- Jonas Weber: confirm the installation window with building management by 10 April 2026.
+
+Open question
+Nobody has yet agreed who signs off on the data privacy review.
