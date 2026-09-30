@@ -3,8 +3,8 @@ import Foundation
 /// What produced an answer, in words the person sees. The engine owns this text so that every screen says the same
 /// true thing, and no view names a model on its own.
 ///
-/// This describes local generation only. Data that a connected tool service sends or returns is a separate concept
-/// with its own wording; it is not merged into this one.
+/// This describes local inference only. A connected tool service that the person approves may receive the arguments
+/// shown before the call; the detail says so and does not claim that nothing leaves the Mac.
 public struct ModelProvenance: Equatable, Sendable {
     /// One short line for the answer header and the window subtitle.
     public let shortLabel: String
@@ -23,7 +23,7 @@ public struct ModelProvenance: Equatable, Sendable {
     /// so none is named.
     public static let appleOnDevice = ModelProvenance(
         shortLabel: "Apple on-device model · On this Mac",
-        detail: "Answered by Apple's on-device foundation model through the Foundation Models framework, on this Mac. Nothing is sent to the cloud. Apple does not expose the exact model version to apps.",
+        detail: "Answered by Apple's on-device foundation model through the Foundation Models framework. Model inference stays on this Mac; no cloud model is used. Connected services you approve may receive the details shown before each call. Apple does not expose the exact model version to apps.",
         footnote: "Answers come from Apple’s on-device model and can be wrong."
     )
 }

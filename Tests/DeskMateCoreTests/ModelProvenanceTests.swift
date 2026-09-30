@@ -7,8 +7,10 @@ import Testing
 
     @Test func theEngineNamesAppleOnDeviceModelOnThisMac() {
         #expect(provenance.shortLabel == "Apple on-device model · On this Mac")
-        #expect(provenance.detail.contains("Apple's on-device foundation model through the Foundation Models framework, on this Mac"))
-        #expect(provenance.detail.contains("Nothing is sent to the cloud"))
+        #expect(provenance.detail.contains("Apple's on-device foundation model through the Foundation Models framework"))
+        #expect(provenance.detail.contains("Model inference stays on this Mac; no cloud model is used"))
+        #expect(provenance.detail.contains("Connected services you approve may receive the details shown before each call"))
+        #expect(!provenance.detail.contains("Nothing is sent"))
         #expect(provenance.detail.contains("Apple does not expose the exact model version to apps"))
     }
 
