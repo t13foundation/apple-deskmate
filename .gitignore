@@ -1,0 +1,12 @@
+# macOS / Xcode
+.DS_Store
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+# Secrets and local output
+.env
+.env.*
+*.p12
+*.mobileprovision
+artifacts/
