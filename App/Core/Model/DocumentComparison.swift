@@ -15,6 +15,32 @@ public enum DocumentComparison {
     public static let maxNotesTokens = 600
     public static let condensedNotesTokens = 500
     public static let overheadTokensPerExcerpt = 20
+    /// Upper bound for the final comparison. A table plus gaps and questions for two sets of notes needs about 1,000
+    /// tokens; the ceiling stops a looping answer long before it fills the whole window.
+    public static let maxFinalResponseTokens = 1_400
+    /// Never ask for less than this. If even this does not fit, the model itself reports that the conversation is too long.
+    public static let minFinalResponseTokens = 256
+    /// Room for the chat framing the model adds around the instructions and the prompt.
+    public static let framingTokens = 96
+
+    /// The response cap for the final comparison: what is left of the context after the measured instructions and
+    /// prompt, bounded by `maxFinalResponseTokens`.
+    public static func finalResponseTokens(contextSize: Int, instructionsTokens: Int, promptTokens: Int) -> Int {
+        let room = contextSize - instructionsTokens - promptTokens - framingTokens
+        return min(maxFinalResponseTokens, max(minFinalResponseTokens, room))
+    }
+
+    /// A visible note for the end of the result when a stage stopped at its length limit, or nil when nothing was cut.
+    public static func incompleteNote(finalHitLimit: Bool, limitedNotes: [String]) -> String? {
+        var lines: [String] = []
+        if finalHitLimit { lines.append("The comparison reached the length limit and may be incomplete.") }
+        if !limitedNotes.isEmpty {
+            let names = limitedNotes.map { "“\($0)”" }.joined(separator: " and ")
+            lines.append("The reading notes for \(names) reached the length limit, so some details may be missing.")
+        }
+        guard !lines.isEmpty else { return nil }
+        return "*" + lines.joined(separator: " ") + "*"
+    }
 
     /// Splits a document's excerpts into windows, in reading order. Excerpts are never cut.
     public static func windows(for attachment: Attachment, budgetTokens: Int = windowTokens, meter: any TokenMeter) async -> [[SourceChunk]] {

@@ -150,11 +150,19 @@ public final class SystemModelEngine: ConversationEngine {
 
     public func streamReply(to prompt: String) -> AsyncThrowingStream<String, any Error> {
         let session = self.session
+        let cap = ContextBudget.responseCap(contextSize: model.contextSize)
+        let options = Self.chatOptions(cap: cap)
+        let meter = SystemModelMeter(model: model)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    for try await snapshot in session.streamResponse(to: prompt) {
-                        continuation.yield(snapshot.content)
+                    var latest = ""
+                    for try await snapshot in session.streamResponse(to: prompt, options: options) {
+                        latest = snapshot.content
+                        continuation.yield(latest)
+                    }
+                    if await Self.hitLimit(latest, cap: cap, meter: meter) {
+                        continuation.yield(latest + Self.chatLimitNote)
                     }
                     continuation.finish()
                 } catch {
@@ -178,6 +186,9 @@ public final class SystemModelEngine: ConversationEngine {
     private func streamAsk(_ request: TurnRequest) -> AsyncThrowingStream<TurnUpdate, any Error> {
         let session = self.session
         let relay = self.relay
+        let cap = ContextBudget.responseCap(contextSize: model.contextSize)
+        let options = Self.chatOptions(cap: cap)
+        let meter = SystemModelMeter(model: model)
         let prompt: String
         if request.attachments.isEmpty {
             prompt = request.question
@@ -193,9 +204,13 @@ public final class SystemModelEngine: ConversationEngine {
             }
             let task = Task {
                 do {
-                    for try await snapshot in session.streamResponse(to: prompt) {
+                    for try await snapshot in session.streamResponse(to: prompt, options: options) {
                         latest.withLock { $0 = snapshot.content }
                         continuation.yield(TurnUpdate(text: snapshot.content))
+                    }
+                    let finished = latest.withLock { $0 }
+                    if await Self.hitLimit(finished, cap: cap, meter: meter) {
+                        continuation.yield(TurnUpdate(text: finished + Self.chatLimitNote))
                     }
                     relay.install(nil)
                     continuation.finish()
@@ -285,9 +300,11 @@ public final class SystemModelEngine: ConversationEngine {
         let condenseOptions = Self.options(maxTokens: DocumentComparison.condensedNotesTokens)
 
         var notes: [String] = []
+        var limitedNotes: [String] = []
         for attachment in request.attachments {
             let windows = await DocumentComparison.windows(for: attachment, meter: meter)
             var parts: [String] = []
+            var notesHitLimit = false
             for (index, window) in windows.enumerated() {
                 try Task.checkCancellation()
                 let step = windows.count > 1 ? " (part \(index + 1) of \(windows.count))" : ""
@@ -297,24 +314,27 @@ public final class SystemModelEngine: ConversationEngine {
                     ledger.recordGiven(SourceCitation(id: label, chunkID: chunk.id, fileID: chunk.fileID, fileName: chunk.fileName, location: chunk.location, excerpt: chunk.text, truncated: false, origin: .attachment))
                     return (label, chunk)
                 }
-                let extraction = LanguageModelSession(model: model, instructions: DocumentComparison.extractionInstructions)
+                let extraction = Self.stageSession(model: model, instructions: DocumentComparison.extractionInstructions)
                 let response = try await extraction.respond(
                     to: DocumentComparison.extractionPrompt(fileName: attachment.fileName, excerpts: excerpts),
                     options: extractOptions
                 )
+                if await Self.hitLimit(response.content, cap: DocumentComparison.notesResponseTokens, meter: meter) { notesHitLimit = true }
                 parts.append(response.content.trimmingCharacters(in: .whitespacesAndNewlines))
             }
             var combined = parts.joined(separator: "\n")
             if windows.count > 1, await meter.tokens(in: combined) > DocumentComparison.maxNotesTokens {
                 try Task.checkCancellation()
                 continuation.yield(TurnUpdate(text: "", activity: "Summarizing \(attachment.fileName)…"))
-                let condense = LanguageModelSession(model: model, instructions: DocumentComparison.condenseInstructions)
+                let condense = Self.stageSession(model: model, instructions: DocumentComparison.condenseInstructions)
                 let response = try await condense.respond(
                     to: DocumentComparison.condensePrompt(fileName: attachment.fileName, notes: combined),
                     options: condenseOptions
                 )
+                if await Self.hitLimit(response.content, cap: DocumentComparison.condensedNotesTokens, meter: meter) { notesHitLimit = true }
                 combined = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
             }
+            if notesHitLimit { limitedNotes.append(attachment.fileName) }
             notes.append(combined)
         }
 
@@ -325,11 +345,44 @@ public final class SystemModelEngine: ConversationEngine {
             nameA: request.attachments[0].fileName, notesA: notes[0],
             nameB: request.attachments[1].fileName, notesB: notes[1]
         )
-        let final = LanguageModelSession(model: model, instructions: DocumentComparison.finalInstructions)
-        for try await snapshot in final.streamResponse(to: prompt) {
-            continuation.yield(TurnUpdate(text: snapshot.content))
+        // The cap is what is left of the window after the measured instructions and prompt, so a looping answer stops
+        // by itself instead of overflowing the context.
+        let finalCap = DocumentComparison.finalResponseTokens(
+            contextSize: model.contextSize,
+            instructionsTokens: await meter.tokens(in: DocumentComparison.finalInstructions),
+            promptTokens: await meter.tokens(in: prompt)
+        )
+        var finalOptions = GenerationOptions()
+        finalOptions.maximumResponseTokens = finalCap
+        let final = Self.stageSession(model: model, instructions: DocumentComparison.finalInstructions)
+        var latest = ""
+        for try await snapshot in final.streamResponse(to: prompt, options: finalOptions) {
+            latest = snapshot.content
+            continuation.yield(TurnUpdate(text: latest))
+        }
+        let finalHitLimit = await Self.hitLimit(latest, cap: finalCap, meter: meter)
+        if let note = DocumentComparison.incompleteNote(finalHitLimit: finalHitLimit, limitedNotes: limitedNotes) {
+            continuation.yield(TurnUpdate(text: latest + "\n\n" + note))
         }
         rebuildBeforeNextTurn = true
+    }
+
+    /// A new session for one comparison stage. It holds only that stage's instructions, so no notes or earlier stages
+    /// accumulate in a transcript.
+    static func stageSession(model: SystemLanguageModel, instructions: String) -> LanguageModelSession {
+        LanguageModelSession(model: model, instructions: instructions)
+    }
+
+    /// Chat replies are capped at the response reserve, which `ContextBudget.decide` keeps free in the window.
+    static func chatOptions(cap: Int) -> GenerationOptions {
+        GenerationOptions(maximumResponseTokens: cap)
+    }
+
+    static let chatLimitNote = "\n\n*This answer reached the length limit and may be incomplete.*"
+
+    /// True when a reply stopped at its cap instead of finishing by itself.
+    static func hitLimit(_ text: String, cap: Int, meter: any TokenMeter) async -> Bool {
+        ContextBudget.reachedLimit(responseTokens: await meter.tokens(in: text), cap: cap)
     }
 
     /// Low-temperature options for note-taking steps, which should be faithful rather than creative.
