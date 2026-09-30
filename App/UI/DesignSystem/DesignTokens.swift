@@ -54,6 +54,10 @@ enum DS {
         static let readingWidth: CGFloat = 680
         /// Widest a question bubble grows; the answer uses the whole column.
         static let bubbleMaxWidth: CGFloat = 520
+        /// A Markdown table is an aligned grid in a column at least this wide; narrower, it becomes one card per row.
+        static let tableStackedWidth: CGFloat = 520
+        /// Least width per column for the grid layout, so many columns fall back to cards before they get cramped.
+        static let tableMinColumnWidth: CGFloat = 150
         /// Square size of icon-only controls (attach, send, stop) and the height of a one-line field.
         static let controlSize: CGFloat = 32
         /// Width reserved for a leading icon in a row.
