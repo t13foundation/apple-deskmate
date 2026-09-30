@@ -72,6 +72,7 @@ public enum AttachmentPrompt {
     private static func rounded(_ value: Int) -> String {
         let step = value >= 1000 ? 100 : 10
         let rounded = max(step, (value + step / 2) / step * step)
-        return rounded.formatted()
+        // English copy: always 18,000, whatever the Mac's regional number format is.
+        return rounded.formatted(.number.locale(Locale(identifier: "en_US")))
     }
 }

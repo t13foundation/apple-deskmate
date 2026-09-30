@@ -27,7 +27,21 @@ Known limitations:
 - Checking a very long draft against the context limit can take several seconds before the message appears.
 - The model does not always follow length instructions exactly.
 - VoiceOver spoken output and the final accessibility pass belong to the later quality package.
-- Not implemented yet: file library, MCP, persistence and history, widget, compact panel, global shortcut, menu bar. See the Issues.
+- Not implemented yet in this checkout: MCP, persistence and history, widget, compact panel, global shortcut, menu bar. See the Issues.
+
+### My files (Issue #3, WBS-PROT-02)
+
+The sidebar has a My files section. You add a folder or individual TXT, Markdown and PDF files through the system open panel; only what you pick is readable. The app keeps a security-scoped bookmark per source and never scans the disk. Files are chunked and indexed on the Mac with a local BM25 index (no embeddings, no network). In normal chat the model calls one read-only local search tool and answers with inspectable citations: each `[S#]` points to an excerpt that was actually given to the model, opens a source drawer with the file, page and passage, and unknown IDs are stripped and flagged instead of shown as sources. You can also attach up to 5 files to one question, or compare exactly two documents in a staged comparison (a document that would need more than 6 reading steps is refused, never cut).
+
+Limits: 200 files per library, 10 MB and 50 pages per file, 5 attachments per question. Skipped files (unsupported type, scanned PDF without text, oversize, unreadable) are listed with a reason and an action. Refresh finds added, changed and removed files. A source that was moved, deleted or whose access was revoked is treated as revoked: it is not searchable and its excerpts are not returned. Scanned PDFs are not read because OCR is out of scope.
+
+Implemented and unit-tested with synthetic data; real on-device answers were produced headlessly with `--ask` (see below). The SwiftUI screens for My files, the citation drawer and the attachment strip compile but still need verification in the running app by the host: light and dark mode, keyboard, VoiceOver and reduced motion are not yet inspected.
+
+Known limitations of this package:
+
+- The on-device model sometimes skips the search tool and says it found nothing, sometimes ignores that two versions of a document disagree, and sometimes cites an unrelated excerpt when it answers “not in your files”. Citations prove which excerpts the model saw, not that every sentence is supported by them.
+- Retrieval is keyword-based (BM25 with light stemming), so questions that share no words with the passage can miss it.
+- Image-only PDFs, OCR, DOCX and web pages are not supported. The chosen sources (with bookmarks) and a rebuildable text index are saved as JSON in the app’s Application Support folder, so extracted document text is stored on this Mac until you remove the source. Conversation history is a separate package.
 
 ## Build, test and run
 
@@ -50,6 +64,17 @@ bash scripts/build-app.sh --sign "<Apple Development identity>"
 ```
 
 For development, `swift run DeskMate`, `swift run DeskMate --diagnose-model` and `swift run DeskMate --ask "…"` run the same entry points without assembling the app bundle.
+
+Headless file questions use the real on-device model with an in-memory library (nothing is saved, no bookmarks are created). They print to your terminal because you asked for it, and never print document text other than cited excerpts when `--show-excerpts` is given:
+
+```sh
+swift run DeskMate --ask "Who approved the budget?" --library Fixtures/Library --show-searches
+swift run DeskMate --ask "What is the retention period?" --attach Fixtures/Library/lumen-security-review.pdf
+swift run DeskMate --compare Fixtures/Library/lumen-plan-v1.md Fixtures/Library/lumen-plan-v2.md
+swift run DeskMate --ask "…" --library Fixtures/Library --follow-up "…" --show-excerpts
+```
+
+`Fixtures/Library` is a synthetic “Project Lumen” set (TXT, Markdown, text and scanned PDFs, a Latin-1 file, and a line that tries to inject instructions). `Fixtures/make-library-pdfs.swift` regenerates the PDFs.
 
 `scripts/test.sh` exists because with only Command Line Tools selected, plain `swift test` cannot find the Testing framework: it either fails to compile (`no such module 'Testing'`) or builds and runs zero tests. The script reads the developer directory from `$DEVELOPER_DIR` (else `xcode-select -p`), adds the framework path only for Command Line Tools, fails if no tests ran, and is plain `swift test` under full Xcode.
 

@@ -4,7 +4,7 @@
 
 Deliver a beautiful, useful English-language macOS assistant for nonprogrammers. The delivery is a complete conversational assistant: quick open → ask → answer from model knowledge, selected files, and approved MCP → follow-up. The first internal checkpoint is real local inference in the chat UI. The complete prototype includes document workflows, persistence, a desktop widget, a compact assistant panel, and bounded MCP retrieval.
 
-Product scope is canonical in `docs/specyfikacja-produktowa.md`; UI rules in `docs/design-system.md`; work, dependencies, and status in GitHub Issues and the DeskMate Project. Preserve the distinction between intended behavior and verified implementation. The repository currently contains planning documents only.
+Product scope is canonical in `docs/specyfikacja-produktowa.md`; UI rules in `docs/design-system.md`; work, dependencies, and status in GitHub Issues and the DeskMate Project. Preserve the distinction between intended behavior and verified implementation. The chat checkpoint (Issue #2) is integrated; later packages are in progress, so check the code and Issues for what is actually verified.
 
 ## Delivery boundaries
 
