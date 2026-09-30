@@ -8,10 +8,6 @@ enum DeskMateLauncher {
     @MainActor
     static func main() {
         if let command = HeadlessCommand(arguments: Array(CommandLine.arguments.dropFirst())) {
-            if case .renderSnapshot(let request) = command {
-                // AppKit drawing must stay on the main thread and run loop, so this path is synchronous.
-                exit(SnapshotRenderer.render(request))
-            }
             Task {
                 let code = await command.run()
                 exit(code)
