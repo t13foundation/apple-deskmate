@@ -26,6 +26,8 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
     public var removedCitations: [String]
     /// How many excerpts the model was given while writing this answer, cited or not.
     public var consultedCount: Int
+    /// A document comparison only: the excerpts read for it. Shown as compared material, not as per-fact citations.
+    public var comparedMaterial: [SourceCitation]
     /// Files attached to a question (user messages only).
     public var attachments: [AttachmentSummary]
 
@@ -38,6 +40,7 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
         sources: [SourceCitation] = [],
         removedCitations: [String] = [],
         consultedCount: Int = 0,
+        comparedMaterial: [SourceCitation] = [],
         attachments: [AttachmentSummary] = []
     ) {
         self.id = id
@@ -48,6 +51,7 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
         self.sources = sources
         self.removedCitations = removedCitations
         self.consultedCount = consultedCount
+        self.comparedMaterial = comparedMaterial
         self.attachments = attachments
     }
 }

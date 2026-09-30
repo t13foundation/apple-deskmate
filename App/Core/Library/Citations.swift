@@ -49,12 +49,16 @@ public struct GroundedAnswer: Equatable, Sendable {
     public var removedCitations: [String]
     /// How many excerpts the model was given for this answer, cited or not.
     public var consultedCount: Int
+    /// For a document comparison: every excerpt the extraction stages read, in reading order. This is the material the
+    /// answer was built from, not a per-fact citation, so it is kept apart from `sources`.
+    public var comparedMaterial: [SourceCitation]
 
-    public init(text: String, sources: [SourceCitation] = [], removedCitations: [String] = [], consultedCount: Int = 0) {
+    public init(text: String, sources: [SourceCitation] = [], removedCitations: [String] = [], consultedCount: Int = 0, comparedMaterial: [SourceCitation] = []) {
         self.text = text
         self.sources = sources
         self.removedCitations = removedCitations
         self.consultedCount = consultedCount
+        self.comparedMaterial = comparedMaterial
     }
 }
 
@@ -123,6 +127,7 @@ public final class SourceLedger: Sendable {
         var labelByChunk: [String: String] = [:]
         var given: [String: SourceCitation] = [:]
         var consultedThisTurn = 0
+        var comparedThisTurn: [SourceCitation] = []
         var searchesThisTurn = 0
         var traces: [SearchTrace] = []
     }
@@ -145,6 +150,7 @@ public final class SourceLedger: Sendable {
     public func beginTurn() {
         state.withLock {
             $0.consultedThisTurn = 0
+            $0.comparedThisTurn = []
             $0.searchesThisTurn = 0
             $0.traces = []
         }
@@ -166,6 +172,15 @@ public final class SourceLedger: Sendable {
         }
     }
 
+    /// Records an excerpt given to a comparison stage. It can be cited like any given excerpt and is also listed as
+    /// compared material for this turn, once.
+    public func recordCompared(_ citation: SourceCitation) {
+        recordGiven(citation)
+        state.withLock { state in
+            if !state.comparedThisTurn.contains(where: { $0.id == citation.id }) { state.comparedThisTurn.append(citation) }
+        }
+    }
+
     /// Counts a search call in this turn and returns the new total.
     public func registerSearch() -> Int {
         state.withLock {
@@ -183,8 +198,10 @@ public final class SourceLedger: Sendable {
     }
 
     public func ground(_ text: String) -> GroundedAnswer {
-        let snapshot = state.withLock { ($0.given, $0.consultedThisTurn) }
-        return CitationValidator.ground(text, given: snapshot.0, consulted: snapshot.1)
+        let snapshot = state.withLock { ($0.given, $0.consultedThisTurn, $0.comparedThisTurn) }
+        var grounded = CitationValidator.ground(text, given: snapshot.0, consulted: snapshot.1)
+        grounded.comparedMaterial = snapshot.2
+        return grounded
     }
 
     /// The model session was rebuilt, so earlier excerpts are no longer in its context and cannot be cited.
@@ -193,6 +210,7 @@ public final class SourceLedger: Sendable {
         state.withLock {
             $0.given = [:]
             $0.consultedThisTurn = 0
+            $0.comparedThisTurn = []
         }
     }
 

@@ -152,12 +152,26 @@ enum HeadlessFilesAsk {
 
     private static func printSources(_ answer: ChatMessage, showExcerpts: Bool) {
         if answer.sources.isEmpty {
-            print("--- sources: none cited (excerpts given to the model: \(answer.consultedCount)) ---")
+            if answer.comparedMaterial.isEmpty {
+                print("--- sources: none cited (excerpts given to the model: \(answer.consultedCount)) ---")
+            } else {
+                print("--- sources: none cited per fact ---")
+            }
         } else {
             print("--- sources cited ---")
             for source in answer.sources {
                 print("[\(source.id)] \(source.title)\(source.truncated ? " (excerpt cut to fit)" : "")")
                 if showExcerpts { print("    \"\(source.excerpt.replacingOccurrences(of: "\n", with: " "))\"") }
+            }
+        }
+        if !answer.comparedMaterial.isEmpty {
+            print("--- \(DocumentComparison.comparedMaterialTitle(answer.comparedMaterial).lowercased()) ---")
+            for group in DocumentComparison.groupedByFile(answer.comparedMaterial) {
+                print(group.fileName)
+                for excerpt in group.excerpts {
+                    print("  [\(excerpt.id)] \(excerpt.location ?? "no location")")
+                    if showExcerpts { print("      \"\(excerpt.excerpt.replacingOccurrences(of: "\n", with: " "))\"") }
+                }
             }
         }
         if !answer.removedCitations.isEmpty {

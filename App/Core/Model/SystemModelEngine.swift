@@ -311,7 +311,7 @@ public final class SystemModelEngine: ConversationEngine {
                 continuation.yield(TurnUpdate(text: "", activity: "Reading \(attachment.fileName)\(step)…"))
                 let excerpts = window.map { chunk -> (label: String, chunk: SourceChunk) in
                     let label = ledger.label(forChunk: chunk.id)
-                    ledger.recordGiven(SourceCitation(id: label, chunkID: chunk.id, fileID: chunk.fileID, fileName: chunk.fileName, location: chunk.location, excerpt: chunk.text, truncated: false, origin: .attachment))
+                    ledger.recordCompared(SourceCitation(id: label, chunkID: chunk.id, fileID: chunk.fileID, fileName: chunk.fileName, location: chunk.location, excerpt: chunk.text, truncated: false, origin: .attachment))
                     return (label, chunk)
                 }
                 let extraction = Self.stageSession(model: model, instructions: DocumentComparison.extractionInstructions)
@@ -361,7 +361,9 @@ public final class SystemModelEngine: ConversationEngine {
         let rendered = DocumentComparison.render(
             response.content,
             citationsA: citations(of: request.attachments[0]),
-            citationsB: citations(of: request.attachments[1])
+            citationsB: citations(of: request.attachments[1]),
+            nameA: request.attachments[0].fileName,
+            nameB: request.attachments[1].fileName
         )
         var text = rendered.markdown
         let notices = [

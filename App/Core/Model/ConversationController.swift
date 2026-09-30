@@ -201,6 +201,7 @@ public final class ConversationController {
             $0.sources = grounded?.sources ?? []
             $0.removedCitations = grounded?.removedCitations ?? []
             $0.consultedCount = grounded?.consultedCount ?? 0
+            $0.comparedMaterial = grounded?.comparedMaterial ?? []
         }
         return text
     }

@@ -154,7 +154,9 @@ public enum DocumentComparison {
     public static func render(
         _ result: ComparisonResult,
         citationsA: [String: SourceCitation],
-        citationsB: [String: SourceCitation]
+        citationsB: [String: SourceCitation],
+        nameA: String,
+        nameB: String
     ) -> (markdown: String, removedCitations: [String]) {
         var removed: [String] = []
         func checked(_ text: String, against citations: [String: SourceCitation]) -> String {
@@ -166,7 +168,7 @@ public enum DocumentComparison {
         var lines: [String] = []
         let rows = result.rows.filter { !$0.topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if !rows.isEmpty {
-            lines.append("| Topic | Document A | Document B |")
+            lines.append("| Topic | \(cell(nameA)) | \(cell(nameB)) |")
             lines.append("| --- | --- | --- |")
             for row in rows {
                 lines.append("| \(cell(row.topic)) | \(cell(checked(row.documentA, against: citationsA))) | \(cell(checked(row.documentB, against: citationsB))) |")
@@ -181,6 +183,30 @@ public enum DocumentComparison {
             lines.append(contentsOf: kept.map { "- \($0)" })
         }
         return (lines.joined(separator: "\n"), removed)
+    }
+
+    // MARK: Compared material
+
+    /// "Compared material (2 files, 9 excerpts)". Not "Sources": these excerpts were read, not cited per fact.
+    public static func comparedMaterialTitle(_ material: [SourceCitation]) -> String {
+        let files = Set(material.map(\.fileID)).count
+        return "Compared material (\(files) \(files == 1 ? "file" : "files"), \(material.count) \(material.count == 1 ? "excerpt" : "excerpts"))"
+    }
+
+    /// The excerpts grouped by file, files in first-read order and excerpts in reading order.
+    public static func groupedByFile(_ material: [SourceCitation]) -> [(fileName: String, excerpts: [SourceCitation])] {
+        var order: [String] = []
+        var groups: [String: [SourceCitation]] = [:]
+        for citation in material {
+            if groups[citation.fileID] == nil { order.append(citation.fileID) }
+            groups[citation.fileID, default: []].append(citation)
+        }
+        return order.map { (groups[$0]![0].fileName, groups[$0]!) }
+    }
+
+    /// "S1, lumen-plan-v1.md, Section: Budget".
+    public static func spokenLabel(for citation: SourceCitation) -> String {
+        [citation.id, citation.fileName, citation.location].compactMap { $0 }.joined(separator: ", ")
     }
 
     /// A visible note for citations that did not match the document they were written for, or nil when none were removed.
