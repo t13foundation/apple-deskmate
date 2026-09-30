@@ -6,10 +6,15 @@ struct ComposerView: View {
 
     var body: some View {
         VStack(spacing: DS.Spacing.s) {
+            AttachmentStrip(controller: controller)
+
             HStack(alignment: .bottom, spacing: DS.Spacing.s) {
+                attachMenu
+                    .padding(.bottom, DS.Spacing.xs + 2)
+
                 ComposerTextView(
                     text: $controller.draft,
-                    placeholder: controller.hasConversation ? "Ask a follow-up…" : "Ask anything, in English…",
+                    placeholder: placeholder,
                     focusToken: controller.focusRequest,
                     onSubmit: { controller.send() },
                     onCancel: { controller.cancel() }
@@ -30,6 +35,29 @@ struct ComposerView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DS.Spacing.xs)
         }
+    }
+
+    private var placeholder: String {
+        if controller.isComparing { return "Ask how the two documents differ…" }
+        return controller.hasConversation ? "Ask a follow-up…" : "Ask anything, in English…"
+    }
+
+    private var attachMenu: some View {
+        Menu {
+            Button("Attach files…") { AttachActions.chooseAndAttach(to: controller) }
+                .disabled(!controller.canAttachMore)
+            Button("Compare two documents…") { AttachActions.startComparison(with: controller) }
+        } label: {
+            Image(systemName: "paperclip")
+                .font(.system(size: 15, weight: .medium))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(controller.isBusy || controller.isLoadingAttachments)
+        .help("Attach up to \(ConversationController.maxAttachments) files to this question, or compare two documents")
+        .accessibilityLabel("Attach files")
+        .accessibilityHint("Attach up to \(ConversationController.maxAttachments) files, or compare two documents")
     }
 
     @ViewBuilder private var actionButton: some View {
@@ -59,6 +87,7 @@ struct ComposerView: View {
 
     private var sendHelp: String {
         if controller.trimmedDraft.isEmpty { return "Type a question to send it" }
+        if controller.isComparing, controller.attachments.count != 2 { return "Choose two documents to compare" }
         if !controller.readiness.isReady { return "The on-device model isn’t available yet" }
         return "Send (Return)"
     }

@@ -3,10 +3,15 @@
 <plist version="1.0">
 <dict>
 	<!-- The app stays sandboxed. Foundation Models needs no entitlement.
+	     My files reads only what the person picks in the open panel, read-only, and keeps
+	     access across launches with app-scoped security bookmarks. There is no network entitlement.
 	     Later packages add, and only when their feature lands:
-	     files.user-selected.read-only (selected library folders and files),
-	     network.client (approved MCP endpoints), and the App Group for the widget. -->
+	     network.client (approved MCP endpoints) and the App Group for the widget. -->
 	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
 </dict>
 </plist>

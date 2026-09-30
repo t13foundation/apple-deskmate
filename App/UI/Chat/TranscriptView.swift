@@ -67,7 +67,7 @@ struct MessageView: View {
 
     var body: some View {
         switch message.role {
-        case .user: UserMessageView(text: message.text)
+        case .user: UserMessageView(text: message.text, attachments: message.attachments)
         case .assistant: AssistantMessageView(message: message, isLast: isLast, controller: controller)
         }
     }
@@ -75,20 +75,38 @@ struct MessageView: View {
 
 struct UserMessageView: View {
     let text: String
+    var attachments: [AttachmentSummary] = []
 
     var body: some View {
         HStack(spacing: 0) {
             Spacer(minLength: DS.Spacing.xxl * 2)
-            Text(text)
-                .font(.dmBody)
-                .textSelection(.enabled)
-                .padding(.horizontal, DS.Spacing.l)
-                .padding(.vertical, DS.Spacing.m)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
-                        .fill(Color.dmAccent.opacity(0.14))
-                )
-                .accessibilityLabel("You: \(text)")
+            VStack(alignment: .trailing, spacing: DS.Spacing.s) {
+                Text(text)
+                    .font(.dmBody)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, DS.Spacing.l)
+                    .padding(.vertical, DS.Spacing.m)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
+                            .fill(Color.dmAccent.opacity(0.14))
+                    )
+                    .accessibilityLabel("You: \(text)")
+                if !attachments.isEmpty {
+                    HStack(spacing: DS.Spacing.xs + 2) {
+                        ForEach(attachments) { attachment in
+                            Label(attachment.fileName, systemImage: attachment.kind == .pdf ? "doc.richtext" : "doc.text")
+                                .font(.dmCaption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .padding(.horizontal, DS.Spacing.s)
+                                .padding(.vertical, DS.Spacing.xs)
+                                .background(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+                                .accessibilityLabel("Attached: \(attachment.fileName)")
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -108,6 +126,8 @@ struct AssistantMessageView: View {
                 statusLine
             }
             .accessibilityElement(children: .combine)
+
+            CitationsView(message: message)
 
             if message.status != .streaming, !message.text.isEmpty {
                 actions
@@ -131,7 +151,7 @@ struct AssistantMessageView: View {
     @ViewBuilder private var content: some View {
         if message.text.isEmpty {
             if message.status == .streaming {
-                WorkingIndicator()
+                WorkingIndicator(label: isLast ? (controller.activity ?? "Working on your Mac") : "Working on your Mac")
             }
         } else {
             MarkdownText(markdown: message.text)
@@ -141,7 +161,7 @@ struct AssistantMessageView: View {
     @ViewBuilder private var statusLine: some View {
         switch message.status {
         case .streaming where !message.text.isEmpty:
-            WorkingIndicator(label: "Writing…")
+            WorkingIndicator(label: isLast ? (controller.activity ?? "Writing…") : "Writing…")
         case .stopped:
             Label(message.text.isEmpty ? "Stopped before an answer" : "Stopped", systemImage: "stop.circle")
                 .font(.dmCaption)
