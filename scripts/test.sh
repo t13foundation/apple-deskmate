@@ -16,6 +16,9 @@ if [[ "$developer_dir" == "/Library/Developer/CommandLineTools" ]]; then
   if [[ -d "$frameworks/Testing.framework" ]]; then
     extra+=(-Xswiftc -F"$frameworks" -Xlinker -F"$frameworks" -Xlinker -rpath -Xlinker "$frameworks"
             -Xlinker -rpath -Xlinker "$developer_dir/Library/Developer/usr/lib")
+    # The test runner loads Testing and its interop library at run time too.
+    export DYLD_FRAMEWORK_PATH="$frameworks"
+    export DYLD_LIBRARY_PATH="$developer_dir/Library/Developer/usr/lib"
   fi
 fi
 
