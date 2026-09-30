@@ -8,6 +8,7 @@ import Foundation
 enum HeadlessCommand {
     case diagnoseModel
     case ask(String)
+    case renderSnapshot(SnapshotRequest)
     case usage(String?)
 
     init?(arguments: [String]) {
@@ -18,6 +19,11 @@ enum HeadlessCommand {
         case "--ask":
             let question = arguments.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             self = question.isEmpty ? .usage("--ask needs a question, e.g. --ask \"What is a budget?\"") : .ask(question)
+        case "--render-snapshot":
+            switch SnapshotRequest.parse(Array(arguments.dropFirst())) {
+            case .success(let request): self = .renderSnapshot(request)
+            case .failure(let problem): self = .usage(problem.message)
+            }
         case "--help", "-h":
             self = .usage(nil)
         default:
@@ -31,9 +37,11 @@ enum HeadlessCommand {
         case .usage(let problem):
             if let problem { print("error: \(problem)") }
             print("""
-            usage: DeskMate [--diagnose-model | --ask "<question>" | --help]
+            usage: DeskMate [--diagnose-model | --ask "<question>" | --render-snapshot <file> | --help]
               --diagnose-model  print model availability, English support and context size, then exit
               --ask "<q>"       run one real on-device generation and print timing and answer
+              --render-snapshot <file.png> [--appearance light|dark] [--size 980x720]
+                                development snapshot of the empty chat window; output must be inside .scratch/
             Without arguments DeskMate opens its window.
             """)
             return problem == nil ? 0 : 64
@@ -42,6 +50,9 @@ enum HeadlessCommand {
             let snapshot = SystemModelProbe.snapshot()
             print(ModelDiagnostics.report(snapshot: snapshot))
             return snapshot.readiness.isReady ? 0 : 3
+
+        case .renderSnapshot(let request):
+            return SnapshotRenderer.render(request)
 
         case .ask(let question):
             let engine = SystemModelEngine()

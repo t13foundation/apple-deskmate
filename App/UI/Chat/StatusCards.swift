@@ -13,6 +13,11 @@ enum SystemSettingsLink {
 }
 
 /// Persistent model status shown while the on-device model cannot answer. The draft stays in the composer.
+///
+/// Do not put `.fixedSize(vertical: true)` on the message text of the cards in this file. SwiftUI asks a
+/// container for its minimum size with a near-zero width; fixed-size text then wraps to one word per line, the
+/// chat column reports a minimum height taller than the window, and the banner and composer end up clipped off
+/// screen (the window looks blank while the accessibility tree is complete).
 struct ReadinessBanner: View {
     let controller: ConversationController
     @State private var highlighted = false
@@ -32,7 +37,6 @@ struct ReadinessBanner: View {
                 Text(readiness.message)
                     .font(.dmBody)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: DS.Spacing.s) {
                     if readiness.suggestsSystemSettings {
                         Button("Open System Settings") { SystemSettingsLink.open() }
@@ -91,7 +95,6 @@ struct FailureCard: View {
                 Text(failure.message)
                     .font(.dmBody)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
                 if !failure.actions.isEmpty {
                     HStack(spacing: DS.Spacing.s) {
                         ForEach(Array(failure.actions.enumerated()), id: \.offset) { index, action in

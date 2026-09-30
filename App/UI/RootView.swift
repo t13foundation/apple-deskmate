@@ -27,7 +27,7 @@ struct RootView: View {
                 .accessibilityLabel("New chat")
             }
         }
-        .frame(minWidth: 640, minHeight: 480)
+        .frame(minWidth: 640, minHeight: 520)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // The person may have just turned Apple Intelligence on in System Settings.
             controller.refreshReadiness()
