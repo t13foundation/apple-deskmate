@@ -32,7 +32,7 @@ struct ToolsSection: View {
                 Text("Tools")
                     .font(.dmSection)
                     .accessibilityAddTraits(.isHeader)
-                DMBadge(text: "\(totalCount) of \(limit) tools on across all connections", tint: atLimit ? .dmWarning : .dmAccent)
+                DMBadge(text: "\(totalCount) of \(limit) tools on across all connections", tint: atLimit ? .dmWarning : .dmBrandText)
                     .accessibilityLabel("\(totalCount) of \(limit) tools turned on across all connections, \(hereCount) in \(connection.name)")
                 Spacer(minLength: 0)
             }
@@ -45,7 +45,7 @@ struct ToolsSection: View {
             if atLimit {
                 DMNotice(
                     symbol: "info.circle",
-                    tint: .dmAccent,
+                    tint: .dmBrandText,
                     title: "\(limit) tools are turned on across all connections, the most allowed",
                     message: hereCount == totalCount
                         ? "Turn one off to choose another."

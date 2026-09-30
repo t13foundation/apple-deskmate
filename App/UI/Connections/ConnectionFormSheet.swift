@@ -89,7 +89,7 @@ struct ConnectionFormSheet: View {
                     Section {
                         DMNotice(
                             symbol: "info.circle",
-                            tint: .dmAccent,
+                            tint: .dmBrandText,
                             title: "This disconnects the connection and turns its tools off",
                             message: "Changing the address or token means the tools you approved no longer apply. Turn them on again after testing."
                         )
@@ -242,7 +242,7 @@ struct ConnectionFormSheet: View {
             case .succeeded(let report):
                 DMNotice(
                     symbol: "checkmark.circle",
-                    tint: .dmAccent,
+                    tint: .dmBrandText,
                     title: "Connected to \(report.negotiation.serverName)",
                     message: summary(of: report)
                 )

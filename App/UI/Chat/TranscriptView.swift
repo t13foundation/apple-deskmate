@@ -119,8 +119,8 @@ struct AssistantMessageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.s) {
+            header
             VStack(alignment: .leading, spacing: DS.Spacing.s) {
-                header
                 content
                 statusLine
             }
@@ -137,13 +137,17 @@ struct AssistantMessageView: View {
 
     private var header: some View {
         HStack(spacing: DS.Spacing.xs) {
-            Image(systemName: "sparkle")
-                .font(.dmCaption.weight(.semibold))
-                .foregroundStyle(Color.dmAccent)
-                .accessibilityHidden(true)
-            Text("DeskMate · On this Mac")
-                .font(.dmCaption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack(spacing: DS.Spacing.xs) {
+                Image(systemName: "sparkle")
+                    .font(.dmCaption.weight(.semibold))
+                    .foregroundStyle(Color.dmBrandText)
+                    .accessibilityHidden(true)
+                Text(SystemModelEngine.provenance.shortLabel)
+                    .font(.dmCaption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            ProvenanceInfoButton()
         }
     }
 
@@ -204,6 +208,34 @@ struct AssistantMessageView: View {
         .labelStyle(.titleAndIcon)
         .font(.dmCaption)
         .foregroundStyle(.secondary)
+    }
+}
+
+/// A small info button beside the answer label. Its popover says, in the engine's own words, what produced the answer.
+struct ProvenanceInfoButton: View {
+    @State private var isShown = false
+
+    private var provenance: ModelProvenance { SystemModelEngine.provenance }
+
+    var body: some View {
+        Button {
+            isShown.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.dmCaption)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .help(provenance.detail)
+        .accessibilityLabel("About this answer")
+        .accessibilityHint(provenance.detail)
+        .popover(isPresented: $isShown, arrowEdge: .bottom) {
+            Text(provenance.detail)
+                .font(.dmCaption)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: DS.Layout.popoverWidth, alignment: .leading)
+                .padding(DS.Spacing.m)
+        }
     }
 }
 

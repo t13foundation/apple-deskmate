@@ -92,7 +92,7 @@ struct CitationsView: View {
             HStack(alignment: .top, spacing: DS.Spacing.s) {
                 Text(citation.id)
                     .font(.dmCaption.weight(.semibold))
-                    .foregroundStyle(Color.dmAccent)
+                    .foregroundStyle(Color.dmBrandText)
                     .frame(minWidth: DS.Spacing.xl, alignment: .leading)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(citation.title)

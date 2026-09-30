@@ -26,7 +26,7 @@ struct ComposerView: View {
             }
             .dmSurface()
 
-            Text("Answers come from Apple’s on-device model and can be wrong.")
+            Text(SystemModelEngine.provenance.footnote)
                 .dmFootnote()
                 .frame(maxWidth: .infinity)
         }
@@ -51,7 +51,7 @@ struct ComposerView: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .foregroundStyle(Color.dmAccent)
+        .foregroundStyle(Color.dmBrandText)
         .fixedSize()
         .disabled(controller.isBusy || controller.isLoadingAttachments)
         .help("Attach up to \(ConversationController.maxAttachments) files to this question, or compare two documents")

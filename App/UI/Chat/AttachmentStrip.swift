@@ -58,7 +58,7 @@ struct AttachmentStrip: View {
                     HStack(spacing: DS.Spacing.s) {
                         Label(comparisonText, systemImage: "rectangle.split.2x1")
                             .font(.dmCaption.weight(.semibold))
-                            .foregroundStyle(Color.dmAccent)
+                            .foregroundStyle(Color.dmBrandText)
                         Button("Choose files…") { picker.chooseAndAttach(to: controller) }
                             .buttonStyle(.borderless)
                             .font(.dmCaption)

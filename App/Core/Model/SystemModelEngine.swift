@@ -58,6 +58,9 @@ public final class SystemModelEngine: ConversationEngine {
     /// Tokens kept free beyond the reply reserve when sizing tool results (tool-call wrapper, rounding).
     static let toolSafetyMargin = 150
 
+    /// What the screens say produced an answer. The same for every view, because this engine is the only inference path.
+    public nonisolated static let provenance = ModelProvenance.appleOnDevice
+
     let model: SystemLanguageModel
     private let baseInstructions: String
     /// Extension point for later packages (approved MCP tools). The library search tool is added on top of these.

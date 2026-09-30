@@ -14,7 +14,7 @@ enum SystemSettingsLink {
 
 /// Persistent model status shown while the on-device model cannot answer. The draft stays in the composer.
 /// A compact inline notice (see `DMNotice`); when the model is ready nothing is shown here, and the window
-/// subtitle says "Runs on your Mac".
+/// subtitle shows the engine's provenance label.
 struct ReadinessBanner: View {
     let controller: ConversationController
     @State private var highlighted = false

@@ -34,7 +34,7 @@ struct RootView: View {
                             )
                     }
                     .navigationTitle(controller.conversationTitle)
-                    .navigationSubtitle(controller.readiness.isReady ? "Runs on your Mac" : controller.readiness.statusLabel)
+                    .navigationSubtitle(controller.readiness.isReady ? SystemModelEngine.provenance.shortLabel : controller.readiness.statusLabel)
             case .files:
                 LibraryView()
                     .navigationTitle("My files")
@@ -46,17 +46,17 @@ struct RootView: View {
             }
         }
         .toolbar {
-            // With the sidebar visible, New chat lives there. Hidden, it stays one click away here.
-            if columnVisibility == .detailOnly {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        startNewChat()
-                    } label: {
-                        Label("New chat", systemImage: "square.and.pencil")
-                    }
-                    .help("Start a new chat (⌘N)")
-                    .accessibilityLabel("New chat")
+            // New chat is always one click away: here whether or not the sidebar is shown, and as the first sidebar row.
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    startNewChat()
+                } label: {
+                    Label("New chat", systemImage: "square.and.pencil")
                 }
+                // ⌘N itself is the File > New Chat command, which does the same thing.
+                .help("Start a new chat (⌘N)")
+                .accessibilityLabel("New chat")
+                .accessibilityHint("Clears the conversation and starts fresh")
             }
         }
         .environment(library)
@@ -89,8 +89,9 @@ struct RootView: View {
         )
     }
 
+    /// Same as the sidebar row: an empty chat is already new, so an unsent draft is not thrown away.
     private func startNewChat() {
-        controller.newChat()
+        if controller.hasConversation { controller.newChat() }
         navigation.section = .chat
     }
 }

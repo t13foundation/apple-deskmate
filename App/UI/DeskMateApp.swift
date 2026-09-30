@@ -41,7 +41,7 @@ struct DeskMateApp: App {
     var body: some Scene {
         Window("DeskMate", id: "main") {
             RootView(controller: controller, library: library, connections: connections, navigation: navigation)
-                .tint(Color.dmAccent)
+                .tint(Color.dmBrandFill)
         }
         .defaultSize(width: DS.Layout.windowDefaultWidth, height: DS.Layout.windowDefaultHeight)
         .commands { ConversationCommands(controller: controller, navigation: navigation) }

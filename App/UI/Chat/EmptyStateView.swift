@@ -122,7 +122,7 @@ struct EmptyStateView: View {
         case .addFiles:
             DMNotice(
                 symbol: "folder.badge.plus",
-                tint: .dmAccent,
+                tint: .dmBrandText,
                 title: "Add your files first",
                 message: library.isEmpty
                     ? "My files is empty. Add a folder or files, then ask about them in normal chat."
@@ -134,7 +134,7 @@ struct EmptyStateView: View {
         case .attachNotes:
             DMNotice(
                 symbol: "paperclip",
-                tint: .dmAccent,
+                tint: .dmBrandText,
                 title: "Attach the meeting notes",
                 message: "Attach a TXT, Markdown or PDF file with the notes, or paste the notes into the message box."
             ) {
@@ -144,7 +144,7 @@ struct EmptyStateView: View {
         case .chooseTwo:
             DMNotice(
                 symbol: "rectangle.split.2x1",
-                tint: .dmAccent,
+                tint: .dmBrandText,
                 title: "Choose two documents",
                 message: "A comparison takes exactly two TXT, Markdown or PDF files. DeskMate reads them on your Mac and cites the right one."
             ) {

@@ -18,10 +18,10 @@ struct ConnectionStatusPresentation {
             tint = .secondary
         case .connecting:
             badge = "Connecting"
-            tint = .dmAccent
+            tint = .dmBrandText
         case .connected:
             badge = "Connected"
-            tint = .dmAccent
+            tint = .dmBrandText
         case .failed:
             badge = "Needs attention"
             tint = .dmWarning
@@ -50,7 +50,7 @@ struct ConnectionRow: View {
             HStack(alignment: .top, spacing: DS.Spacing.m) {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
                     .font(.dmBody)
-                    .foregroundStyle(Color.dmAccent)
+                    .foregroundStyle(Color.dmBrandText)
                     .frame(width: DS.Layout.iconWidth)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: DS.Spacing.xs) {
@@ -80,7 +80,7 @@ struct ConnectionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(isSelected ? Color.dmAccent.opacity(DS.Fill.tint) : Color.clear)
+        .background(isSelected ? Color.dmBrandFill.opacity(DS.Fill.tint) : Color.clear)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenLabel(presentation: presentation, host: host))
         .accessibilityHint("Shows its tools and actions")

@@ -124,7 +124,7 @@ struct LibraryView: View {
         if !library.notices.isEmpty {
             DMNotice(
                 symbol: "info.circle",
-                tint: .dmAccent,
+                tint: .dmBrandText,
                 title: library.notices.count == 1 ? library.notices[0] : "\(library.notices.count) things to know",
                 message: library.notices.count > 1 ? library.notices.joined(separator: "\n") : nil,
                 onDismiss: { library.dismissNotices() }
@@ -289,7 +289,7 @@ private struct SourceRow: View {
         HStack(spacing: DS.Spacing.m) {
             Image(systemName: source.kind == .folder ? "folder" : "doc.text")
                 .font(.dmBody)
-                .foregroundStyle(Color.dmAccent)
+                .foregroundStyle(Color.dmBrandText)
                 .frame(width: DS.Layout.iconWidth)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
@@ -306,7 +306,7 @@ private struct SourceRow: View {
             if case .unavailable = state {
                 DMBadge(text: "Unavailable", tint: .dmWarning)
             } else {
-                DMBadge(text: "\(searchable) searchable", tint: .dmAccent)
+                DMBadge(text: "\(searchable) searchable", tint: .dmBrandText)
                 if skipped > 0 {
                     DMBadge(text: "\(skipped) skipped", tint: .dmWarning)
                 }

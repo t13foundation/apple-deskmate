@@ -26,7 +26,7 @@ struct SourceViewer: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Source \(citation.id)")
                     .font(.dmCaption.weight(.semibold))
-                    .foregroundStyle(Color.dmAccent)
+                    .foregroundStyle(Color.dmBrandText)
                 Spacer(minLength: 0)
                 Button {
                     navigation.closeViewer()

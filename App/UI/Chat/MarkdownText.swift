@@ -93,7 +93,7 @@ enum MarkdownStyler {
             styleInline(&content, size: bodySize, weight: .regular)
             content.foregroundColor = .secondary
             var bar = AttributedString("▎ ")
-            bar.foregroundColor = Color.dmAccent
+            bar.foregroundColor = Color.dmBrandText
             bar.font = .system(size: bodySize)
             bar.append(content)
             return bar

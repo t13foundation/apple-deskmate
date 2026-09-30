@@ -32,7 +32,7 @@ struct DMSurface: ViewModifier {
             }
             .overlay {
                 shape.strokeBorder(
-                    highlighted ? Color.dmAccent : Color(nsColor: .separatorColor),
+                    highlighted ? Color.dmBrandText : Color(nsColor: .separatorColor),
                     lineWidth: highlighted ? DS.Stroke.focus : (contrast == .increased ? DS.Stroke.increasedContrast : DS.Stroke.hairline)
                 )
             }
@@ -54,7 +54,7 @@ struct DMTint: ViewModifier {
             .background(shape.fill(color.opacity(DS.Fill.tint)))
             .overlay {
                 shape.strokeBorder(
-                    highlighted ? Color.dmAccent : color.opacity(DS.Fill.tintBorder),
+                    highlighted ? Color.dmBrandText : color.opacity(DS.Fill.tintBorder),
                     lineWidth: highlighted ? DS.Stroke.focus : (contrast == .increased ? DS.Stroke.increasedContrast : DS.Stroke.hairline)
                 )
             }
@@ -229,7 +229,7 @@ struct DMEmptyHeader: View {
         VStack(spacing: DS.Spacing.s) {
             Image(systemName: symbol)
                 .font(.dmTitle)
-                .foregroundStyle(Color.dmAccent)
+                .foregroundStyle(Color.dmBrandText)
                 .padding(.bottom, DS.Spacing.xs)
                 .accessibilityHidden(true)
             Text(title)
@@ -255,10 +255,10 @@ struct DMRoundButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.dmBody.weight(.semibold))
-            .foregroundStyle(isEnabled ? Color.dmOnAccent : Color.secondary)
+            .foregroundStyle(isEnabled ? Color.dmOnBrandFill : Color.secondary)
             .frame(width: DS.Layout.controlSize, height: DS.Layout.controlSize)
             .background(
-                Circle().fill(isEnabled ? Color.dmAccent : Color.primary.opacity(DS.Fill.disabled))
+                Circle().fill(isEnabled ? Color.dmBrandFill : Color.primary.opacity(DS.Fill.disabled))
             )
             .opacity(configuration.isPressed ? 0.8 : 1)
             .contentShape(Circle())
@@ -285,7 +285,7 @@ struct DMTileButtonStyle: ButtonStyle {
                 }
                 .overlay {
                     shape.strokeBorder(
-                        hovering || configuration.isPressed ? Color.dmAccent : Color(nsColor: .separatorColor),
+                        hovering || configuration.isPressed ? Color.dmBrandText : Color(nsColor: .separatorColor),
                         lineWidth: contrast == .increased ? DS.Stroke.increasedContrast : DS.Stroke.hairline
                     )
                 }

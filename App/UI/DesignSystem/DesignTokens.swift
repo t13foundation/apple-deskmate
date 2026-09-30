@@ -78,6 +78,9 @@ enum DS {
         static let windowDefaultWidth: CGFloat = 980
         static let windowDefaultHeight: CGFloat = 720
 
+        /// Width of a short explanatory popover.
+        static let popoverWidth: CGFloat = 280
+
         /// A notice puts its actions on the title row when its column is at least this wide.
         static let noticeInlineActionsWidth: CGFloat = 640
     }
@@ -95,13 +98,16 @@ extension Font {
 }
 
 extension Color {
-    /// Restrained teal. Contrast is tuned for light, dark and increased-contrast appearances.
-    static let dmAccent = Color(nsColor: .dmAccent)
-    /// Foreground for content drawn on top of the accent.
-    static let dmOnAccent = Color(nsColor: .dmOnAccent)
+    /// T13 brand-fill: primary fills (Send, Stop, prominent buttons) and selection-like emphasis. White on it is at
+    /// least 5.5:1 in every appearance. Not for text on the window background.
+    static let dmBrandFill = Color(nsColor: .dmBrandFill)
+    /// Content drawn on brand-fill. White in every appearance.
+    static let dmOnBrandFill = Color(nsColor: .dmOnBrandFill)
+    /// T13 brand-text: accent text, icons and focus outlines on the window background. At least 6.6:1 in every appearance.
+    static let dmBrandText = Color(nsColor: .dmBrandText)
     /// Semantic warning. Dark enough in light mode to be readable as text, not only as an icon.
     static let dmWarning = Color(nsColor: .dmWarning)
-    /// Tint of the person's own question.
+    /// Very subtle brand wash behind the person's own question.
     static let dmUserBubble = Color(nsColor: .dmUserBubble)
     /// Faint neutral fill for code and badges.
     static let dmSubtleFill = Color.primary.opacity(0.08)
@@ -123,18 +129,34 @@ extension NSColor {
         NSColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: alpha)
     }
 
-    static let dmAccent = dynamic(
-        light: rgb(15, 118, 110),
-        lightHighContrast: rgb(11, 95, 89),
-        dark: rgb(45, 212, 191),
-        darkHighContrast: rgb(94, 234, 212)
+    /// Display P3 components (gamma-encoded), converted from the T13 OKLCH roles. Every value is inside the P3 gamut.
+    private static func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, alpha: CGFloat = 1) -> NSColor {
+        NSColor(displayP3Red: r, green: g, blue: b, alpha: alpha)
+    }
+
+    // T13 brand-fill. Light oklch(0.496 0.265 302), dark oklch(0.558 0.288 302).
+    // Increase Contrast: light oklch(0.44 0.22 302), dark oklch(0.50 0.27 302), so white stays at 7:1 or more.
+    private static let brandFillLight = p3(0.4658, 0.0648, 0.8239)
+    private static let brandFillLightHighContrast = p3(0.3880, 0.1068, 0.6777)
+    private static let brandFillDark = p3(0.5446, 0.1318, 0.9462)
+    private static let brandFillDarkHighContrast = p3(0.4721, 0.0472, 0.8375)
+
+    static let dmBrandFill = dynamic(
+        light: brandFillLight,
+        lightHighContrast: brandFillLightHighContrast,
+        dark: brandFillDark,
+        darkHighContrast: brandFillDarkHighContrast
     )
 
-    static let dmOnAccent = dynamic(
-        light: .white,
-        lightHighContrast: .white,
-        dark: rgb(4, 40, 37),
-        darkHighContrast: rgb(4, 40, 37)
+    static let dmOnBrandFill = NSColor.white
+
+    // T13 brand-text and focus. Light oklch(0.45 0.22 302), dark oklch(0.76 0.16 305).
+    // Increase Contrast: light oklch(0.38 0.20 302), dark oklch(0.84 0.10 305).
+    static let dmBrandText = dynamic(
+        light: p3(0.3989, 0.1250, 0.6906),
+        lightHighContrast: p3(0.3172, 0.0455, 0.5703),
+        dark: p3(0.7566, 0.5906, 0.9844),
+        darkHighContrast: p3(0.8331, 0.7350, 0.9825)
     )
 
     static let dmWarning = dynamic(
@@ -144,11 +166,11 @@ extension NSColor {
         darkHighContrast: rgb(255, 179, 64)
     )
 
-    /// Teal wash behind the person's question. Text on it stays primary label colour.
+    /// Brand-fill at low opacity behind the person's question. Text on it stays the primary label colour.
     static let dmUserBubble = dynamic(
-        light: rgb(15, 118, 110, alpha: 0.12),
-        lightHighContrast: rgb(11, 95, 89, alpha: 0.16),
-        dark: rgb(45, 212, 191, alpha: 0.16),
-        darkHighContrast: rgb(94, 234, 212, alpha: 0.22)
+        light: brandFillLight.withAlphaComponent(0.09),
+        lightHighContrast: brandFillLightHighContrast.withAlphaComponent(0.12),
+        dark: brandFillDark.withAlphaComponent(0.22),
+        darkHighContrast: brandFillDarkHighContrast.withAlphaComponent(0.28)
     )
 }

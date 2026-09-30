@@ -12,7 +12,7 @@ struct StarterTile: View {
         HStack(spacing: DS.Spacing.m) {
             Image(systemName: symbol)
                 .font(.dmSection)
-                .foregroundStyle(Color.dmAccent)
+                .foregroundStyle(Color.dmBrandText)
                 .frame(width: DS.Layout.iconWidth)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
