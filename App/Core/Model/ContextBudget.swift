@@ -38,6 +38,17 @@ public enum ContextBudget {
         max(512, contextSize / 5)
     }
 
+    /// The hard cap for one generated reply: the reserve that `decide` keeps free, so a reply can never overflow the window.
+    public static func responseCap(contextSize: Int) -> Int {
+        responseReserve(contextSize: contextSize)
+    }
+
+    /// True when a reply of `responseTokens` stopped at `cap` rather than finishing by itself. The SDK reports no finish
+    /// reason, so a reply within 2% (at least 8 tokens) of the cap is treated as cut off.
+    public static func reachedLimit(responseTokens: Int, cap: Int) -> Bool {
+        responseTokens >= cap - max(8, cap / 50)
+    }
+
     public static func decide(_ usage: ContextUsage) -> ContextDecision {
         let limit = usage.contextSize - responseReserve(contextSize: usage.contextSize)
         if usage.baselineTokens + usage.promptTokens > limit {

@@ -21,6 +21,17 @@ public protocol ConversationEngine: AnyObject {
 
     /// Optional latency optimisation. Must not send any content.
     func prewarm()
+
+    /// Checks that a turn (question plus attached files) fits the context before anything is sent.
+    /// `history` is the finished turns, so an engine can rebuild its context if the library changed.
+    func prepareTurn(_ request: TurnRequest, history: [ConversationTurn]) async -> TurnPreparation
+
+    /// Runs a prepared turn. Each update carries the complete answer so far.
+    func streamTurn(_ request: TurnRequest) -> AsyncThrowingStream<TurnUpdate, any Error>
+
+    /// Checks the citations in an answer against the excerpts the model really received.
+    /// Nil when the engine has no sources.
+    func grounding(forAnswer text: String) -> GroundedAnswer?
 }
 
 public extension ConversationEngine {

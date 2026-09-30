@@ -158,8 +158,8 @@ final class ComposerScrollView: NSScrollView {
     /// Called (on the next main-queue turn) after character edits, including ones that bypass the delegate.
     var onStorageEdit: ((String) -> Void)?
 
-    private static let font = NSFont.systemFont(ofSize: 14)
-    private static let verticalInset: CGFloat = 4
+    static let font = NSFont.systemFont(ofSize: DS.FontSize.body)
+    static let verticalInset: CGFloat = 4
     private let meter: ComposerHeightMeter
     private var isSyncingDocumentLayout = false
     private var storageEditPending = false

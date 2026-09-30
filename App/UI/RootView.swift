@@ -2,64 +2,187 @@ import AppKit
 import DeskMateCore
 import SwiftUI
 
-/// Main window: a restrained sidebar and the conversation.
-/// Later packages add Recent, My files, Connections and Settings to the sidebar.
+/// Main window: a restrained sidebar and the conversation, My files or Connections.
+/// Later packages add Settings to the sidebar.
 struct RootView: View {
     let controller: ConversationController
+    let library: LibraryStore
+    let connections: ConnectionManager
+    @Bindable var navigation: AppNavigation
+
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var wasCompact: Bool?
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(controller: controller)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(controller: controller, navigation: navigation)
+                .navigationSplitViewColumnWidth(
+                    min: DS.Layout.sidebarMinWidth,
+                    ideal: DS.Layout.sidebarIdealWidth,
+                    max: DS.Layout.sidebarMaxWidth
+                )
         } detail: {
-            ChatView(controller: controller)
-                .navigationTitle(controller.conversationTitle)
-                .navigationSubtitle(controller.readiness.isReady ? "Runs on your Mac" : controller.readiness.statusLabel)
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    controller.newChat()
-                } label: {
-                    Label("New chat", systemImage: "square.and.pencil")
-                }
-                .help("Start a new chat (⌘N)")
-                .accessibilityLabel("New chat")
+            switch navigation.section {
+            case .chat:
+                ChatView(controller: controller)
+                    .inspector(isPresented: viewerIsPresented) {
+                        SourceViewer(navigation: navigation)
+                            .inspectorColumnWidth(
+                                min: DS.Layout.viewerMinWidth,
+                                ideal: DS.Layout.viewerIdealWidth,
+                                max: DS.Layout.viewerMaxWidth
+                            )
+                    }
+                    .navigationTitle(controller.conversationTitle)
+                    .navigationSubtitle(controller.readiness.isReady ? SystemModelEngine.provenance.shortLabel : controller.readiness.statusLabel)
+            case .files:
+                LibraryView()
+                    .navigationTitle("My files")
+                    .navigationSubtitle("Stays on your Mac")
+            case .connections:
+                ConnectionsView(manager: connections)
+                    .navigationTitle("Connections")
+                    .navigationSubtitle("You choose which tools it may use")
             }
         }
-        .frame(minWidth: 640, minHeight: 520)
+        .toolbar {
+            // New chat is always one click away: here whether or not the sidebar is shown, and as the first sidebar row.
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    startNewChat()
+                } label: {
+                    // Named and tinted so the action stands out; Send stays the one filled accent control.
+                    Label("New chat", systemImage: "square.and.pencil")
+                        .labelStyle(.titleAndIcon)
+                        .fontWeight(.medium)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.dmBrandText)
+                // ⌘N itself is the File > New Chat command, which does the same thing.
+                .help("Start a new chat (⌘N)")
+                .accessibilityLabel("New chat")
+                .accessibilityHint("Clears the conversation and starts fresh")
+            }
+        }
+        .environment(library)
+        .environment(navigation)
+        .frame(minWidth: DS.Layout.windowMinWidth, minHeight: DS.Layout.windowMinHeight)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            // A narrow window starts with the sidebar hidden. Only crossing the threshold changes it,
+            // so a person's own show or hide choice is left alone while they resize within one range.
+            let isCompact = width < DS.Layout.sidebarCollapseWidth
+            if wasCompact != isCompact {
+                wasCompact = isCompact
+                columnVisibility = isCompact ? .detailOnly : .all
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // The person may have just turned Apple Intelligence on in System Settings.
             controller.refreshReadiness()
         }
+        .onChange(of: controller.hasConversation) { _, hasConversation in
+            if !hasConversation { navigation.closeViewer() }
+        }
         .task { controller.prewarmIfReady() }
+        .task { await library.load() }
+    }
+
+    private var viewerIsPresented: Binding<Bool> {
+        Binding(
+            get: { navigation.viewedCitation != nil },
+            set: { if !$0 { navigation.closeViewer() } }
+        )
+    }
+
+    /// Same as the sidebar row: an empty chat is already new, so an unsent draft is not thrown away.
+    private func startNewChat() {
+        if controller.hasConversation { controller.newChat() }
+        navigation.section = .chat
     }
 }
 
+/// Sidebar rows: New chat, the current conversation (once there is one), My files and Connections.
+/// Conversations are not stored yet, so there is no Recent list to show.
 struct SidebarView: View {
     let controller: ConversationController
+    @Bindable var navigation: AppNavigation
+
+    private enum Item: Hashable {
+        case newChat
+        case current
+        case files
+        case connections
+    }
 
     var body: some View {
-        List(selection: .constant("current")) {
+        List(selection: selection) {
             Section {
-                Button {
-                    controller.newChat()
-                } label: {
-                    Label("New chat", systemImage: "square.and.pencil")
-                        .font(.dmBody)
+                newChatRow
+                    .tag(Item.newChat)
+                    .accessibilityLabel("New chat")
+                    .accessibilityHint("Clears the conversation and starts fresh")
+                if controller.hasConversation {
+                    Label(controller.conversationTitle, systemImage: "bubble.left")
+                        .lineLimit(1)
+                        .tag(Item.current)
+                        .accessibilityLabel("Current conversation: \(controller.conversationTitle)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("New chat")
-                .accessibilityHint("Clears the conversation and starts fresh")
             }
-            Section("Current") {
-                Label(controller.conversationTitle, systemImage: "bubble.left")
-                    .font(.dmBody)
-                    .lineLimit(1)
-                    .tag("current")
-                    .accessibilityLabel("Current conversation: \(controller.conversationTitle)")
+            Section("Library") {
+                Label("My files", systemImage: "folder")
+                    .tag(Item.files)
+                    .accessibilityLabel("My files")
+                    .accessibilityHint("Shows the folders and files DeskMate may read")
+            }
+            Section("Services") {
+                Label("Connections", systemImage: "point.3.connected.trianglepath.dotted")
+                    .tag(Item.connections)
+                    .accessibilityLabel("Connections")
+                    .accessibilityHint("Shows the tool services DeskMate may use and which tools are turned on")
             }
         }
         .listStyle(.sidebar)
+    }
+
+    /// The action row: a brand-text icon and a medium-weight label, so it reads as an action rather than a destination.
+    /// While the row is selected the system selection colours apply, which keep it legible on the highlight.
+    @ViewBuilder private var newChatRow: some View {
+        let isSelected = selection.wrappedValue == .newChat
+        Label {
+            Text("New chat").fontWeight(.medium)
+        } icon: {
+            if isSelected {
+                Image(systemName: "square.and.pencil")
+            } else {
+                Image(systemName: "square.and.pencil").foregroundStyle(Color.dmBrandText)
+            }
+        }
+    }
+
+    private var selection: Binding<Item?> {
+        Binding(
+            get: {
+                switch navigation.section {
+                case .files: .files
+                case .connections: .connections
+                case .chat: controller.hasConversation ? .current : .newChat
+                }
+            },
+            set: { item in
+                switch item {
+                case .newChat:
+                    if controller.hasConversation { controller.newChat() }
+                    navigation.section = .chat
+                case .current:
+                    navigation.section = .chat
+                case .files:
+                    navigation.section = .files
+                case .connections:
+                    navigation.section = .connections
+                case nil:
+                    break
+                }
+            }
+        )
     }
 }

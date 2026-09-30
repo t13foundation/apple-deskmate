@@ -22,6 +22,22 @@ final class ScriptedEngine: ConversationEngine {
     private(set) var resets: [[ConversationTurn]] = []
     private(set) var manual: AsyncThrowingStream<String, any Error>.Continuation?
 
+    /// When set, `prepareTurn` refuses the turn the way the real engine does for files that do not fit.
+    var refusal: ChatFailure?
+    /// Stands in for the citation check of a real engine with sources.
+    var grounder: ((String) -> GroundedAnswer)?
+    private(set) var preparedRequests: [TurnRequest] = []
+
+    func prepareTurn(_ request: TurnRequest, history: [ConversationTurn]) async -> TurnPreparation {
+        preparedRequests.append(request)
+        if let refusal { return .refused(refusal) }
+        let measured = await contextUsage(adding: request.question)
+        if let failure = ChatFailure.context(ContextBudget.decide(measured)) { return .refused(failure) }
+        return .ready
+    }
+
+    func grounding(forAnswer text: String) -> GroundedAnswer? { grounder?(text) }
+
     func readiness() -> ModelReadinessSnapshot { snapshot }
 
     func contextUsage(adding prompt: String) async -> ContextUsage { usage }

@@ -15,17 +15,15 @@ struct TranscriptView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: DS.Spacing.xl) {
+                LazyVStack(alignment: .leading, spacing: DS.Spacing.l) {
                     ForEach(controller.messages) { message in
                         MessageView(message: message, isLast: message.id == controller.messages.last?.id, controller: controller)
                             .id(message.id)
                     }
                     Color.clear.frame(height: 1).id(bottomID)
                 }
-                .frame(maxWidth: DS.Layout.readingWidth, alignment: .leading)
-                .padding(.horizontal, DS.Spacing.panel)
-                .padding(.vertical, DS.Spacing.xl)
-                .frame(maxWidth: .infinity)
+                .dmReadingColumn()
+                .padding(.vertical, DS.Spacing.l)
             }
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentSize.height - geometry.visibleRect.maxY
@@ -67,7 +65,7 @@ struct MessageView: View {
 
     var body: some View {
         switch message.role {
-        case .user: UserMessageView(text: message.text)
+        case .user: UserMessageView(text: message.text, attachments: message.attachments)
         case .assistant: AssistantMessageView(message: message, isLast: isLast, controller: controller)
         }
     }
@@ -75,20 +73,39 @@ struct MessageView: View {
 
 struct UserMessageView: View {
     let text: String
+    var attachments: [AttachmentSummary] = []
 
     var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: DS.Spacing.xxl * 2)
-            Text(text)
-                .font(.dmBody)
-                .textSelection(.enabled)
-                .padding(.horizontal, DS.Spacing.l)
-                .padding(.vertical, DS.Spacing.m)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
-                        .fill(Color.dmAccent.opacity(0.14))
-                )
-                .accessibilityLabel("You: \(text)")
+            Spacer(minLength: DS.Spacing.xxl)
+            VStack(alignment: .trailing, spacing: DS.Spacing.s) {
+                Text(text)
+                    .font(.dmBody)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, DS.Spacing.l)
+                    .padding(.vertical, DS.Spacing.m)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
+                            .fill(Color.dmUserBubble)
+                    )
+                    .accessibilityLabel("You: \(text)")
+                if !attachments.isEmpty {
+                    HStack(spacing: DS.Spacing.xs) {
+                        ForEach(attachments) { attachment in
+                            Label(attachment.fileName, systemImage: attachment.kind == .pdf ? "doc.richtext" : "doc.text")
+                                .font(.dmCaption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .padding(.horizontal, DS.Spacing.s)
+                                .padding(.vertical, DS.Spacing.xs)
+                                .background(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: DS.Stroke.hairline))
+                                .accessibilityLabel("Attached: \(attachment.fileName)")
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: DS.Layout.bubbleMaxWidth, alignment: .trailing)
         }
     }
 }
@@ -102,12 +119,14 @@ struct AssistantMessageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.s) {
+            header
             VStack(alignment: .leading, spacing: DS.Spacing.s) {
-                header
                 content
                 statusLine
             }
             .accessibilityElement(children: .combine)
+
+            CitationsView(message: message)
 
             if message.status != .streaming, !message.text.isEmpty {
                 actions
@@ -117,21 +136,25 @@ struct AssistantMessageView: View {
     }
 
     private var header: some View {
-        HStack(spacing: DS.Spacing.xs + 2) {
-            Image(systemName: "sparkle")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.dmAccent)
-                .accessibilityHidden(true)
-            Text("DeskMate")
-                .font(.dmCaption.weight(.semibold))
-                .foregroundStyle(.secondary)
+        HStack(spacing: DS.Spacing.xs) {
+            HStack(spacing: DS.Spacing.xs) {
+                Image(systemName: "sparkle")
+                    .font(.dmCaption.weight(.semibold))
+                    .foregroundStyle(Color.dmBrandText)
+                    .accessibilityHidden(true)
+                Text(SystemModelEngine.provenance.shortLabel)
+                    .font(.dmCaption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            ProvenanceInfoButton()
         }
     }
 
     @ViewBuilder private var content: some View {
         if message.text.isEmpty {
             if message.status == .streaming {
-                WorkingIndicator()
+                WorkingIndicator(label: isLast ? (controller.activity ?? "Working on your Mac") : "Working on your Mac")
             }
         } else {
             MarkdownText(markdown: message.text)
@@ -141,7 +164,7 @@ struct AssistantMessageView: View {
     @ViewBuilder private var statusLine: some View {
         switch message.status {
         case .streaming where !message.text.isEmpty:
-            WorkingIndicator(label: "Writing…")
+            WorkingIndicator(label: isLast ? (controller.activity ?? "Writing…") : "Writing…")
         case .stopped:
             Label(message.text.isEmpty ? "Stopped before an answer" : "Stopped", systemImage: "stop.circle")
                 .font(.dmCaption)
@@ -149,7 +172,7 @@ struct AssistantMessageView: View {
         case .failed:
             Label(message.text.isEmpty ? "No answer" : "The answer is incomplete", systemImage: "exclamationmark.triangle")
                 .font(.dmCaption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.dmWarning)
         default:
             EmptyView()
         }
@@ -181,9 +204,38 @@ struct AssistantMessageView: View {
             }
         }
         .buttonStyle(.borderless)
+        .controlSize(.small)
         .labelStyle(.titleAndIcon)
         .font(.dmCaption)
         .foregroundStyle(.secondary)
+    }
+}
+
+/// A small info button beside the answer label. Its popover says, in the engine's own words, what produced the answer.
+struct ProvenanceInfoButton: View {
+    @State private var isShown = false
+
+    private var provenance: ModelProvenance { SystemModelEngine.provenance }
+
+    var body: some View {
+        Button {
+            isShown.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.dmCaption)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .help(provenance.detail)
+        .accessibilityLabel("About this answer")
+        .accessibilityHint(provenance.detail)
+        .popover(isPresented: $isShown, arrowEdge: .bottom) {
+            Text(provenance.detail)
+                .font(.dmCaption)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: DS.Layout.popoverWidth, alignment: .leading)
+                .padding(DS.Spacing.m)
+        }
     }
 }
 

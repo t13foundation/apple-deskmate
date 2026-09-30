@@ -8,7 +8,7 @@ A calm desktop companion for focused work. The interface must make input, output
 
 - Spacing: 4, 8, 12, 16, 24, 32 pt. Primary panel padding: 20 pt.
 - Corners: 10 pt controls, 16 pt grouped surfaces, 22 pt compact panel.
-- Colors: semantic macOS text/background colors, restrained teal accent, semantic warning/error colors. Meet contrast in light/dark and increased-contrast modes.
+- Colors: semantic macOS text/background colors, the T13 brand violet as the accent (brand-fill `oklch(0.496 0.265 302)` light and `oklch(0.558 0.288 302)` dark for primary fills and selection, with white on it; brand-text `oklch(0.45 0.22 302)` light and `oklch(0.76 0.16 305)` dark for accent text, icons and focus; built in Display P3; the lime highlight is not a general accent), semantic warning/error colors. Meet contrast in light/dark and increased-contrast modes.
 - Type: title 24 pt semibold, section 16 pt semibold, body 14 pt, supporting text 12 pt minimum. Support accessibility settings without clipping.
 - Materials: subtle native window/sidebar material where readable; solid alternative for Reduce Transparency. One clear focal area; minimal chrome.
 - Motion: short purposeful transitions, never perpetual animation. Respect Reduce Motion.

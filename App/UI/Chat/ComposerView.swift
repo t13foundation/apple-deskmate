@@ -1,35 +1,62 @@
 import DeskMateCore
 import SwiftUI
 
+/// One rounded surface: the attachment strip (when there is one), then attach, the message field and Send or Stop
+/// on one row. A single line is 48 pt tall (a 32 pt row in 8 pt padding). Below it, one short supporting line.
 struct ComposerView: View {
     @Bindable var controller: ConversationController
+    @Environment(AttachPicker.self) private var picker
 
     var body: some View {
         VStack(spacing: DS.Spacing.s) {
-            HStack(alignment: .bottom, spacing: DS.Spacing.s) {
-                ComposerTextView(
+            VStack(spacing: 0) {
+                AttachmentStrip(controller: controller)
+
+                ComposerBar(
                     text: $controller.draft,
-                    placeholder: controller.hasConversation ? "Ask a follow-up…" : "Ask anything, in English…",
+                    placeholder: placeholder,
                     focusToken: controller.focusRequest,
                     onSubmit: { controller.send() },
                     onCancel: { controller.cancel() }
-                )
-                .padding(.leading, DS.Spacing.xs)
-                .padding(.vertical, DS.Spacing.xs)
-
-                actionButton
-                    .padding(.bottom, DS.Spacing.xs)
+                ) {
+                    attachMenu
+                } action: {
+                    actionButton
+                }
             }
-            .padding(.horizontal, DS.Spacing.m)
-            .padding(.vertical, DS.Spacing.xs)
-            .dmSurface(radius: DS.Radius.surface)
+            .dmSurface()
 
-            Text(footnote)
-                .font(.dmCaption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DS.Spacing.xs)
+            Text(SystemModelEngine.provenance.footnote)
+                .dmFootnote()
+                .frame(maxWidth: .infinity)
         }
+    }
+
+    private var placeholder: String {
+        if controller.isComparing { return "Ask how the two documents differ…" }
+        return controller.hasConversation ? "Ask a follow-up…" : "Ask anything, in English…"
+    }
+
+    private var attachMenu: some View {
+        Menu {
+            Button("Attach files…") { picker.chooseAndAttach(to: controller) }
+                .disabled(!controller.canAttachMore)
+            Button("Compare two documents…") { picker.startComparison(with: controller) }
+        } label: {
+            Image(systemName: "paperclip")
+                .font(.dmBody)
+                .frame(width: DS.Layout.controlSize, height: DS.Layout.controlSize)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .foregroundStyle(Color.dmBrandText)
+        .fixedSize()
+        .disabled(controller.isBusy || controller.isLoadingAttachments)
+        .help("Attach up to \(ConversationController.maxAttachments) files to this question, or compare two documents")
+        .accessibilityLabel("Attach files")
+        .accessibilityHint("Attach up to \(ConversationController.maxAttachments) files, or compare two documents")
     }
 
     @ViewBuilder private var actionButton: some View {
@@ -59,11 +86,8 @@ struct ComposerView: View {
 
     private var sendHelp: String {
         if controller.trimmedDraft.isEmpty { return "Type a question to send it" }
+        if controller.isComparing, controller.attachments.count != 2 { return "Choose two documents to compare" }
         if !controller.readiness.isReady { return "The on-device model isn’t available yet" }
         return "Send (Return)"
-    }
-
-    private var footnote: String {
-        "Return to send, Shift+Return for a new line. Answers come from Apple’s on-device model and can be wrong."
     }
 }

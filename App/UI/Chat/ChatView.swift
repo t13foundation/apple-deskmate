@@ -10,8 +10,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if !controller.readiness.isReady {
                 ReadinessBanner(controller: controller)
-                    .frame(maxWidth: DS.Layout.readingWidth)
-                    .padding(.horizontal, DS.Spacing.panel)
+                    .dmReadingColumn()
                     .padding(.top, DS.Spacing.l)
                     .transition(.opacity)
             }
@@ -27,20 +26,19 @@ struct ChatView: View {
 
             if let failure = controller.failure {
                 FailureCard(failure: failure, controller: controller)
-                    .frame(maxWidth: DS.Layout.readingWidth)
-                    .padding(.horizontal, DS.Spacing.panel)
+                    .dmReadingColumn()
                     .padding(.bottom, DS.Spacing.s)
                     .transition(.opacity)
             }
 
             ComposerView(controller: controller)
-                .frame(maxWidth: DS.Layout.readingWidth)
-                .padding(.horizontal, DS.Spacing.panel)
-                .padding(.bottom, DS.Spacing.panel)
+                .dmReadingColumn()
                 .padding(.top, DS.Spacing.xs)
+                .padding(.bottom, DS.Spacing.l)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .attachFilePicker(controller: controller)
         .dmAnimation(value: controller.readiness.isReady)
         .dmAnimation(value: controller.failure)
         .onChange(of: controller.phase) { old, new in
