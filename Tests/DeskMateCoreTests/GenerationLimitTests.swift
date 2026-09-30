@@ -38,11 +38,12 @@ import FoundationModels
     @Test @MainActor func everyStageGetsItsOwnSessionWithOnlyItsOwnInstructions() {
         let model = SystemLanguageModel.default
         let first = SystemModelEngine.stageSession(model: model, instructions: DocumentComparison.extractionInstructions)
-        let second = SystemModelEngine.stageSession(model: model, instructions: DocumentComparison.finalInstructions)
+        let second = SystemModelEngine.stageSession(model: model, instructions: DocumentComparison.pairingInstructions)
         #expect(first !== second)
         #expect(first.transcript.count == 1)
         #expect(second.transcript.count == 1)
-        #expect(String(describing: first.transcript).contains("fact notes"))
-        #expect(!String(describing: second.transcript).contains("fact notes"))
+        #expect(String(describing: first.transcript).contains("extract facts"))
+        #expect(!String(describing: second.transcript).contains("extract facts"))
+        #expect(String(describing: second.transcript).contains("pair the facts"))
     }
 }

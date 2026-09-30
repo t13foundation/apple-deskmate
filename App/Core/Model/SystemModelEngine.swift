@@ -302,12 +302,13 @@ public final class SystemModelEngine: ConversationEngine {
         let extractOptions = Self.options(maxTokens: DocumentComparison.notesResponseTokens)
         let condenseOptions = Self.options(maxTokens: DocumentComparison.condensedNotesTokens)
 
-        var notes: [String] = []
+        var documentFacts: [[DocumentFact]] = []
         var limitedNotes: [String] = []
-        for attachment in request.attachments {
+        for (position, attachment) in request.attachments.enumerated() {
             let windows = await DocumentComparison.windows(for: attachment, meter: meter)
-            var parts: [String] = []
+            var collected: [FactNote] = []
             var notesHitLimit = false
+            var documentLabels = Set<String>()
             for (index, window) in windows.enumerated() {
                 try Task.checkCancellation()
                 let step = windows.count > 1 ? " (part \(index + 1) of \(windows.count))" : ""
@@ -317,75 +318,80 @@ public final class SystemModelEngine: ConversationEngine {
                     ledger.recordCompared(SourceCitation(id: label, chunkID: chunk.id, fileID: chunk.fileID, fileName: chunk.fileName, location: chunk.location, excerpt: chunk.text, truncated: false, origin: .attachment))
                     return (label, chunk)
                 }
+                let windowLabels = Set(excerpts.map(\.label))
+                documentLabels.formUnion(windowLabels)
+                // Guided generation: each fact carries the excerpt it came from, which code checks against this window's labels.
                 let extraction = Self.stageSession(model: model, instructions: DocumentComparison.extractionInstructions)
                 let response = try await extraction.respond(
                     to: DocumentComparison.extractionPrompt(fileName: attachment.fileName, excerpts: excerpts),
+                    generating: FactExtraction.self,
                     options: extractOptions
                 )
-                if await Self.hitLimit(response.content, cap: DocumentComparison.notesResponseTokens, meter: meter) { notesHitLimit = true }
-                parts.append(response.content.trimmingCharacters(in: .whitespacesAndNewlines))
+                if await Self.hitLimit(response.rawContent.jsonString, cap: DocumentComparison.notesResponseTokens, meter: meter) { notesHitLimit = true }
+                collected += DocumentComparison.notes(from: response.content.facts, validLabels: windowLabels)
             }
-            var combined = parts.joined(separator: "\n")
-            if windows.count > 1, await meter.tokens(in: combined) > DocumentComparison.maxNotesTokens {
-                try Task.checkCancellation()
-                continuation.yield(TurnUpdate(text: "", activity: "Summarizing \(attachment.fileName)…"))
-                let condense = Self.stageSession(model: model, instructions: DocumentComparison.condenseInstructions)
-                let response = try await condense.respond(
-                    to: DocumentComparison.condensePrompt(fileName: attachment.fileName, notes: combined),
-                    options: condenseOptions
-                )
-                if await Self.hitLimit(response.content, cap: DocumentComparison.condensedNotesTokens, meter: meter) { notesHitLimit = true }
-                combined = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            var facts = DocumentComparison.deduplicated(collected)
+            let listed = DocumentComparison.factsList(DocumentComparison.numbered(facts, prefix: "X"))
+            if await meter.tokens(in: listed) > DocumentComparison.maxFactsTokens {
+                // Only a long document reaches this: the same structure, in batches, so each step fits the context.
+                var condensed: [FactNote] = []
+                let batches = stride(from: 0, to: facts.count, by: DocumentComparison.condenseBatchFacts).map {
+                    Array(facts[$0..<min($0 + DocumentComparison.condenseBatchFacts, facts.count)])
+                }
+                for batch in batches {
+                    try Task.checkCancellation()
+                    continuation.yield(TurnUpdate(text: "", activity: "Summarizing \(attachment.fileName)…"))
+                    let condense = Self.stageSession(model: model, instructions: DocumentComparison.condenseInstructions)
+                    let response = try await condense.respond(
+                        to: DocumentComparison.condensePrompt(fileName: attachment.fileName, facts: batch),
+                        generating: FactExtraction.self,
+                        options: condenseOptions
+                    )
+                    if await Self.hitLimit(response.rawContent.jsonString, cap: DocumentComparison.condensedNotesTokens, meter: meter) { notesHitLimit = true }
+                    condensed += DocumentComparison.notes(from: response.content.facts, validLabels: documentLabels)
+                }
+                facts = DocumentComparison.deduplicated(condensed)
             }
             if notesHitLimit { limitedNotes.append(attachment.fileName) }
-            notes.append(combined)
+            documentFacts.append(DocumentComparison.numbered(facts, prefix: position == 0 ? "A" : "B"))
         }
 
         try Task.checkCancellation()
         continuation.yield(TurnUpdate(text: "", activity: "Comparing the two documents…"))
-        let prompt = DocumentComparison.finalPrompt(
+        let prompt = DocumentComparison.pairingPrompt(
             question: request.question,
-            nameA: request.attachments[0].fileName, notesA: notes[0],
-            nameB: request.attachments[1].fileName, notesB: notes[1]
+            nameA: request.attachments[0].fileName, factsA: documentFacts[0],
+            nameB: request.attachments[1].fileName, factsB: documentFacts[1]
         )
         // The cap is what is left of the window after the measured instructions and prompt, so a looping answer stops
         // by itself instead of overflowing the context.
         let finalCap = DocumentComparison.finalResponseTokens(
             contextSize: model.contextSize,
-            instructionsTokens: await meter.tokens(in: DocumentComparison.finalInstructions),
+            instructionsTokens: await meter.tokens(in: DocumentComparison.pairingInstructions),
             promptTokens: await meter.tokens(in: prompt)
         )
         var finalOptions = GenerationOptions()
+        finalOptions.temperature = 0.1
         finalOptions.maximumResponseTokens = finalCap
-        // Guided generation: the model fills a fixed structure and code writes the Markdown, so it cannot pad a table.
-        let final = Self.stageSession(model: model, instructions: DocumentComparison.finalInstructions)
-        let response = try await final.respond(to: prompt, generating: ComparisonResult.self, options: finalOptions)
+        // Guided generation: the model only pairs fact IDs and writes questions. Code writes every cell from the facts.
+        let final = Self.stageSession(model: model, instructions: DocumentComparison.pairingInstructions)
+        let response = try await final.respond(to: prompt, generating: FactPairing.self, options: finalOptions)
         let finalHitLimit = await Self.hitLimit(response.rawContent.jsonString, cap: finalCap, meter: meter)
         let rendered = DocumentComparison.render(
             response.content,
-            citationsA: citations(of: request.attachments[0]),
-            citationsB: citations(of: request.attachments[1]),
+            factsA: documentFacts[0],
+            factsB: documentFacts[1],
             nameA: request.attachments[0].fileName,
             nameB: request.attachments[1].fileName
         )
         var text = rendered.markdown
         let notices = [
             DocumentComparison.incompleteNote(finalHitLimit: finalHitLimit, limitedNotes: limitedNotes),
-            DocumentComparison.removedCitationNote(rendered.removedCitations)
+            DocumentComparison.droppedReferenceNote(rendered.droppedReferences)
         ].compactMap { $0 }
         if !notices.isEmpty { text += "\n\n" + notices.joined(separator: "\n\n") }
         continuation.yield(TurnUpdate(text: text))
         rebuildBeforeNextTurn = true
-    }
-
-    /// The excerpts of one attached document that were given to the model, by label.
-    private func citations(of attachment: Attachment) -> [String: SourceCitation] {
-        var result: [String: SourceCitation] = [:]
-        for chunk in attachment.chunks {
-            let label = ledger.label(forChunk: chunk.id)
-            if let citation = ledger.givenCitation(for: label) { result[label] = citation }
-        }
-        return result
     }
 
     /// A new session for one comparison stage. It holds only that stage's instructions, so no notes or earlier stages
