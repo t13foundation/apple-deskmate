@@ -5,6 +5,7 @@ import SwiftUI
 /// on one row. A single line is 48 pt tall (a 32 pt row in 8 pt padding). Below it, one short supporting line.
 struct ComposerView: View {
     @Bindable var controller: ConversationController
+    @Environment(AttachPicker.self) private var picker
 
     var body: some View {
         VStack(spacing: DS.Spacing.s) {
@@ -38,9 +39,9 @@ struct ComposerView: View {
 
     private var attachMenu: some View {
         Menu {
-            Button("Attach files…") { AttachActions.chooseAndAttach(to: controller) }
+            Button("Attach files…") { picker.chooseAndAttach(to: controller) }
                 .disabled(!controller.canAttachMore)
-            Button("Compare two documents…") { AttachActions.startComparison(with: controller) }
+            Button("Compare two documents…") { picker.startComparison(with: controller) }
         } label: {
             Image(systemName: "paperclip")
                 .font(.dmBody)

@@ -1,20 +1,47 @@
 import DeskMateCore
+import Observation
 import SwiftUI
 
-/// Chooses files in the system panel and attaches them to the question being written.
+/// Asks for files to attach to the question being written. Buttons only set `request`; the chat view presents the
+/// system chooser as a sheet (see `attachFilePicker`), so no button action ever runs a modal panel itself.
 @MainActor
-enum AttachActions {
-    static func chooseAndAttach(to controller: ConversationController) {
+@Observable
+final class AttachPicker {
+    var request: FileRequest?
+
+    func chooseAndAttach(to controller: ConversationController) {
         let remaining = controller.attachmentLimit - controller.attachments.count
         guard remaining > 0 else { return }
-        let urls = FilePicker.chooseFiles(remaining: remaining)
-        guard !urls.isEmpty else { return }
-        Task { await controller.attach(urls: urls) }
+        request = .attachments(remaining: remaining)
     }
 
-    static func startComparison(with controller: ConversationController) {
+    func startComparison(with controller: ConversationController) {
         controller.beginComparison()
         chooseAndAttach(to: controller)
+    }
+}
+
+extension View {
+    /// Presents the attach chooser for `controller` as a sheet on this window and provides `AttachPicker` to
+    /// the views below. Apply it once, to a view that stays in the hierarchy.
+    func attachFilePicker(controller: ConversationController) -> some View {
+        modifier(AttachFilePickerModifier(controller: controller))
+    }
+}
+
+private struct AttachFilePickerModifier: ViewModifier {
+    let controller: ConversationController
+    @State private var picker = AttachPicker()
+
+    func body(content: Content) -> some View {
+        @Bindable var picker = picker
+        content
+            .environment(picker)
+            .fileChooser($picker.request) { urls in
+                // Reading the files runs off the main actor inside the controller; the extra files beyond the
+                // limit are refused there with a notice.
+                await controller.attach(urls: urls)
+            }
     }
 }
 
@@ -22,6 +49,7 @@ enum AttachActions {
 /// Drawn inside the composer surface, above the field.
 struct AttachmentStrip: View {
     let controller: ConversationController
+    @Environment(AttachPicker.self) private var picker
 
     var body: some View {
         if isVisible {
@@ -31,7 +59,7 @@ struct AttachmentStrip: View {
                         Label(comparisonText, systemImage: "rectangle.split.2x1")
                             .font(.dmCaption.weight(.semibold))
                             .foregroundStyle(Color.dmAccent)
-                        Button("Choose files…") { AttachActions.chooseAndAttach(to: controller) }
+                        Button("Choose files…") { picker.chooseAndAttach(to: controller) }
                             .buttonStyle(.borderless)
                             .font(.dmCaption)
                             .disabled(!controller.canAttachMore)

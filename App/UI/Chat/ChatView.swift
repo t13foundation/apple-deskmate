@@ -38,6 +38,7 @@ struct ChatView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .attachFilePicker(controller: controller)
         .dmAnimation(value: controller.readiness.isReady)
         .dmAnimation(value: controller.failure)
         .onChange(of: controller.phase) { old, new in

@@ -10,6 +10,12 @@ struct LibraryView: View {
     @Environment(LibraryStore.self) private var library
     @State private var confirmingClear = false
     @State private var showsSkipped = false
+    /// Set by the Add buttons; shows the system chooser as a sheet on this window.
+    @State private var fileRequest: FileRequest?
+    /// True from the moment files are chosen until they are added and read.
+    @State private var isAdding = false
+
+    private var isBusy: Bool { library.isWorking || isAdding }
 
     var body: some View {
         Group {
@@ -21,6 +27,12 @@ struct LibraryView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .toolbar { toolbar }
+        .fileChooser($fileRequest) { urls in
+            // Adding and reading run off the main actor inside the store; this only shows progress around it.
+            isAdding = true
+            await library.addSources(urls: urls)
+            isAdding = false
+        }
         .confirmationDialog("Clear My files?", isPresented: $confirmingClear) {
             Button("Clear library", role: .destructive) { library.clear() }
             Button("Cancel", role: .cancel) {}
@@ -32,26 +44,22 @@ struct LibraryView: View {
     // MARK: Toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        // The set of toolbar items never changes while work runs; progress is shown in the content instead.
         ToolbarItemGroup(placement: .primaryAction) {
-            if library.isWorking {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("Reading your files")
-            }
             Button {
-                addFolders()
+                fileRequest = .folders
             } label: {
                 Label("Add folder", systemImage: "folder.badge.plus")
             }
-            .disabled(library.isWorking)
+            .disabled(isBusy)
             .help("Choose folders DeskMate may read")
 
             Button {
-                addFiles()
+                fileRequest = .sourceFiles
             } label: {
                 Label("Add files", systemImage: "doc.badge.plus")
             }
-            .disabled(library.isWorking)
+            .disabled(isBusy)
             .help("Choose individual files DeskMate may read")
 
             Button {
@@ -59,12 +67,12 @@ struct LibraryView: View {
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .disabled(library.isEmpty || library.isWorking)
+            .disabled(library.isEmpty || isBusy)
             .help("Look for added, changed and removed files")
 
             Menu {
                 Button("Clear library…", role: .destructive) { confirmingClear = true }
-                    .disabled(library.isEmpty || library.isWorking)
+                    .disabled(library.isEmpty || isBusy)
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }
@@ -82,6 +90,7 @@ struct LibraryView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
+                progressRow
                 notices
                 if library.needsRefresh { staleNotice }
 
@@ -91,6 +100,23 @@ struct LibraryView: View {
             }
             .dmReadingColumn()
             .padding(.vertical, DS.Spacing.l)
+        }
+    }
+
+    /// Visible while files are being added or re-read, so a long PDF never looks like a frozen window.
+    @ViewBuilder private var progressRow: some View {
+        if isBusy {
+            let text = isAdding ? "Adding and reading your files…" : "Reading your files…"
+            HStack(spacing: DS.Spacing.s) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(text)
+                    .font(.dmBody)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(text)
         }
     }
 
@@ -116,7 +142,7 @@ struct LibraryView: View {
         ) {
             Button("Refresh") { Task { await library.refresh() } }
                 .buttonStyle(.bordered)
-                .disabled(library.isWorking)
+                .disabled(isBusy)
         }
     }
 
@@ -137,26 +163,29 @@ struct LibraryView: View {
 
     private var skippedGroup: some View {
         let skipped = library.skippedFiles
-        return DisclosureGroup(isExpanded: $showsSkipped) {
-            VStack(alignment: .leading, spacing: DS.Spacing.m) {
-                ForEach(skipped) { file in
-                    SkippedFileRow(file: file, sourceName: sourceName(for: file))
-                }
-            }
-            .padding(.top, DS.Spacing.s)
-        } label: {
+        // The label and hint belong to the header button only. Each skipped row is its own accessibility element
+        // that reads its reason.
+        return DMDisclosure(
+            isExpanded: $showsSkipped,
+            label: "Skipped files, \(skipped.count)",
+            hint: "Shows which files DeskMate can’t search and why"
+        ) {
             HStack(spacing: DS.Spacing.s) {
                 Text("Skipped files")
                     .font(.dmBody.weight(.medium))
                 DMBadge(text: "\(skipped.count)", tint: .dmWarning)
                 Spacer(minLength: 0)
             }
-            .contentShape(Rectangle())
+        } content: {
+            VStack(alignment: .leading, spacing: DS.Spacing.m) {
+                ForEach(skipped) { file in
+                    SkippedFileRow(file: file, sourceName: sourceName(for: file))
+                }
+            }
+            .padding(.top, DS.Spacing.s)
         }
         .padding(DS.Spacing.m)
         .dmSurface(radius: DS.Radius.control)
-        .accessibilityLabel("Skipped files, \(skipped.count)")
-        .accessibilityHint("Shows which files DeskMate can’t search and why")
     }
 
     private var limitsFootnote: some View {
@@ -198,13 +227,14 @@ struct LibraryView: View {
                         subtitle: "Add a folder of notes, plans or reports, or single files. DeskMate reads text, Markdown and text-based PDF files."
                     )
                     HStack(spacing: DS.Spacing.s) {
-                        Button("Add folder…") { addFolders() }
+                        Button("Add folder…") { fileRequest = .folders }
                             .buttonStyle(.borderedProminent)
-                        Button("Add files…") { addFiles() }
+                        Button("Add files…") { fileRequest = .sourceFiles }
                             .buttonStyle(.bordered)
                     }
                     .controlSize(.large)
-                    .disabled(library.isWorking)
+                    .disabled(isBusy)
+                    progressRow
                 }
                 .dmReadingColumn()
                 .dmEmptyStateAnchor(height: proxy.size.height)
@@ -215,19 +245,6 @@ struct LibraryView: View {
         .accessibilityLabel("My files is empty")
     }
 
-    // MARK: Actions
-
-    private func addFolders() {
-        let urls = FilePicker.chooseFolders()
-        guard !urls.isEmpty else { return }
-        Task { await library.addSources(urls: urls) }
-    }
-
-    private func addFiles() {
-        let urls = FilePicker.chooseSourceFiles()
-        guard !urls.isEmpty else { return }
-        Task { await library.addSources(urls: urls) }
-    }
 }
 
 /// One folder or file the person added: name, status badges and a remove button. It opens to its searchable files.
@@ -383,8 +400,9 @@ private struct SkippedFileRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(displayPath) is not searchable. \(reason.label). \(reason.explanation)")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(displayPath), skipped: \(reason.label)")
+            .accessibilityHint(reason.explanation)
         }
     }
 

@@ -12,21 +12,26 @@ struct CitationsView: View {
         if message.status != .streaming, hasContent {
             VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                 if !message.sources.isEmpty {
-                    DisclosureGroup(isExpanded: $expanded) {
+                    // The label belongs to the toggle only. A label on a container replaced every source row with
+                    // "Sources, 1" for accessibility, so each row below is its own labelled element.
+                    let count = message.sources.count
+                    DMDisclosure(
+                        isExpanded: $expanded,
+                        label: "Sources, \(count) \(count == 1 ? "file" : "files")",
+                        hint: "Shows where this answer came from"
+                    ) {
+                        Label("Sources (\(count))", systemImage: "text.quote")
+                            .font(.dmCaption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    } content: {
                         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                             ForEach(message.sources) { citation in
                                 row(citation)
                             }
                         }
                         .padding(.top, DS.Spacing.xs)
-                    } label: {
-                        Label("Sources (\(message.sources.count))", systemImage: "text.quote")
-                            .font(.dmCaption.weight(.semibold))
-                            .foregroundStyle(.secondary)
                     }
                     .font(.dmCaption)
-                    .accessibilityLabel("Sources, \(message.sources.count)")
-                    .accessibilityHint("Shows where this answer came from")
                 } else if message.consultedCount > 0 {
                     Label("DeskMate searched your files, but this answer doesn’t cite any of them.", systemImage: "magnifyingglass")
                         .font(.dmCaption)
@@ -70,7 +75,12 @@ struct CitationsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Source \(citation.id): \(citation.title)")
-        .accessibilityHint("Shows the exact excerpt")
+        .accessibilityLabel(spokenLabel(for: citation))
+        .accessibilityHint("Shows the excerpt")
+    }
+
+    /// "S1, lumen-security-review.pdf, Page 1".
+    private func spokenLabel(for citation: SourceCitation) -> String {
+        [citation.id, citation.fileName, citation.location].compactMap { $0 }.joined(separator: ", ")
     }
 }

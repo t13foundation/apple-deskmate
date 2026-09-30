@@ -10,6 +10,7 @@ struct EmptyStateView: View {
     let controller: ConversationController
     @Environment(LibraryStore.self) private var library
     @Environment(AppNavigation.self) private var navigation
+    @Environment(AttachPicker.self) private var picker
 
     private enum Guidance: Equatable {
         case addFiles
@@ -137,7 +138,7 @@ struct EmptyStateView: View {
                 title: "Attach the meeting notes",
                 message: "Attach a TXT, Markdown or PDF file with the notes, or paste the notes into the message box."
             ) {
-                Button("Attach files…") { AttachActions.chooseAndAttach(to: controller) }
+                Button("Attach files…") { picker.chooseAndAttach(to: controller) }
                     .buttonStyle(.borderedProminent)
             }
         case .chooseTwo:
@@ -147,7 +148,7 @@ struct EmptyStateView: View {
                 title: "Choose two documents",
                 message: "A comparison takes exactly two TXT, Markdown or PDF files. DeskMate reads them on your Mac and cites the right one."
             ) {
-                Button("Choose two files…") { AttachActions.chooseAndAttach(to: controller) }
+                Button("Choose two files…") { picker.chooseAndAttach(to: controller) }
                     .buttonStyle(.borderedProminent)
             }
         }
