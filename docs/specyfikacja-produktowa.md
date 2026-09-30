@@ -10,7 +10,7 @@ Produkt jest demonstratorem T13: pokazuje wartość AI na sprzęcie Apple i pozw
 
 Pierwszy odbiorca to Marek oraz uczestnik pokazu T13 pracujący na angielskich materiałach biznesowych. Osoba rozumie swoje zadanie, ale nie musi znać promptowania, modeli ani terminala.
 
-Przebieg: skrót klawiszowy, menu bar lub widget → kompaktowe okno rozmowy → pytanie po angielsku → dobór wiedzy modelu, relevantnych fragmentów wskazanych plików i narzędzi MCP → odpowiedź z widocznymi źródłami → pytanie uzupełniające lub zapis wyniku. Gdy potrzebny jest kontekst z MCP, aplikacja pokazuje docelowy serwer, narzędzie i argumenty przed każdym wywołaniem.
+Przebieg: skrót klawiszowy, menu bar lub widget → kompaktowe okno rozmowy → pytanie po angielsku → dobór wiedzy modelu, odpowiednich fragmentów wskazanych plików i narzędzi MCP → odpowiedź z widocznymi źródłami → pytanie uzupełniające lub zapis wyniku. Gdy potrzebny jest kontekst z MCP, aplikacja pokazuje docelowy serwer, narzędzie i argumenty przed każdym wywołaniem.
 
 Dostarczamy od razu pełen prototyp obejmujący rozmowę, własne pliki, MCP, widget i szybki panel. Pierwszy wewnętrzny checkpoint implementacyjny to prawdziwa odpowiedź modelu w estetycznym oknie rozmowy. To kontrola postępu, nie ograniczenie dostawy ani osobna bramka zgody na dalszy zakres. Odbiór Marka dotyczy całego przebiegu.
 

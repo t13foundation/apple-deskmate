@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "statuses": [
+    "Backlog",
+    "Ready",
+    "In progress",
+    "In review",
+    "Done"
+  ],
+  "projects": {
+    "deskmate": {
+      "title": "DeskMate",
+      "owner": "t13foundation",
+      "ownerType": "organization",
+      "number": 10,
+      "deliveryState": "active",
+      "autoAddRepository": "t13foundation/apple-deskmate",
+      "specificationPath": "docs/specyfikacja-produktowa.md",
+      "repositories": [
+        "t13foundation/apple-deskmate"
+      ]
+    }
+  }
+}
