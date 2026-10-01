@@ -27,7 +27,7 @@ Known limitations:
 - Checking a very long draft against the context limit can take several seconds before the message appears.
 - The model does not always follow length instructions exactly.
 - VoiceOver spoken output and the final accessibility pass belong to the later quality package.
-- Not implemented yet in this checkout: conversation history and export, the desktop widget, the compact assistant panel, the global shortcut and menu bar item, and model-selected MCP tool calls from chat. The prototype is not complete. See the Issues.
+- Not implemented yet in this checkout: the desktop widget, the compact assistant panel, the global shortcut and menu bar item, and model-selected MCP tool calls from chat. The prototype is not complete. See the Issues.
 
 ### My files (Issue #3, WBS-PROT-02)
 
@@ -41,7 +41,17 @@ Known limitations of this package:
 
 - The on-device model sometimes skips the search tool and says it found nothing, sometimes ignores that two versions of a document disagree, and sometimes cites an unrelated excerpt when it answers “not in your files”. Citations prove which excerpts the model saw, not that every sentence is supported by them.
 - Retrieval is keyword-based (BM25 with light stemming), so questions that share no words with the passage can miss it.
-- Image-only PDFs, OCR, DOCX and web pages are not supported. The chosen sources (with bookmarks) and a rebuildable text index are saved as JSON in the app’s Application Support folder, so extracted document text is stored on this Mac until you remove the source. Conversation history is a separate package.
+- Image-only PDFs, OCR, DOCX and web pages are not supported. The chosen sources (with bookmarks) and a rebuildable text index are saved as JSON in the app’s Application Support folder, so extracted document text is stored on this Mac until you remove the source. Conversations are saved separately (next section); Clear history does not touch the library and Clear library does not touch history.
+
+### Saved conversations and results (Issue #4, WBS-PROT-03)
+
+Every conversation is saved on this Mac as it happens and listed under Recent in the sidebar. Reopening one shows every message, its source excerpts and its results. A follow-up after a restart continues in a restored model session: DeskMate gives the model back the most recent finished turns that fit its 4096-token window (measured with the model’s own token counts, leaving the reply reserve and room for the next question) and shows “Older messages aren't in the model's memory for this chat” where memory begins. Stopped or failed answers are visible but not remembered by the model, as in a live chat. Delete a conversation from its context menu (with confirmation). New chat starts a new record. An answer that is still streaming when you switch conversations or quit is saved as stopped.
+
+Storage: `Application Support/DeskMate/Conversations/` (inside the app container when sandboxed), one `<uuid>.json` per conversation plus a small `index.json` cache, written atomically, owner-only (0700 folder, 0600 files). Records carry `version` (currently 1). Only what is visible is stored: questions, answers, the citations and excerpts as shown, attached file names (never their text), and results. Credentials, raw connector responses and hidden prompts are never stored; a later tool-call package may store only a short visible summary line per call (`StoredMessage.toolSummary`, documented in `ConversationRecord.swift`). A file that cannot be read, or that was written by a newer version, is moved aside as `<uuid>.json.corrupt-<time>` or `<uuid>.json.future-v<N>` with a notice in the chat; it is never overwritten or deleted by a load and other conversations keep working. Settings (⌘,) explains what is saved and has Clear history (every conversation record, with confirmation) and, separately, Clear library. Neither touches your own files. `ConversationHistory.onRemoval(_:)` reports deletions and Clear history so a later widget or panel package can remove anything derived from a conversation.
+
+Results: under the latest complete answer, Create brief and Extract tasks run guided generation in a separate one-shot session over the visible conversation. A conversation that does not fit with room for the structure is refused, never cut. A brief has Summary, Decisions, Open questions and Next steps. Tasks are a table of Task, Owner, Due date and Evidence: an owner or due date appears only if those words are in the conversation, otherwise the cell says “Not specified”, and a task whose evidence is not found word for word in the conversation is left out and counted. Code writes all Markdown (headings, table, escaping), keeps `[S#]` citations that the conversation really had and lists the cited excerpts under Sources, apart from the generated text. If the response cap is reached, an incomplete note is added. The result opens in an editable sheet with Copy and Save as Markdown…; edits are saved with the conversation. The save panel needs `com.apple.security.files.user-selected.read-write`, which replaced read-only; DeskMate still never writes to files you picked for My files.
+
+Status: implemented and unit-tested with synthetic data (storage, quarantine, delete and clear, budgeted restore, result rendering). Not yet verified in this checkout on the real Mac: the real-model brief and restored follow-up (`--brief`, `--resume-demo` below) and the window flow (restart, resume, delete, Settings, result sheet, Save as Markdown, light and dark, VoiceOver). Known limitations: a retried question after a restart does not re-attach its files; tool-call summaries are a reserved field only; saved source excerpts are stored in the conversation file (said in Settings); switching conversation while an answer streams stops it.
 
 ### Connections (Issue #6, WBS-PROT-05)
 
@@ -103,17 +113,25 @@ swift run DeskMate --compare Fixtures/Library/lumen-plan-v1.md Fixtures/Library/
 swift run DeskMate --ask "…" --library Fixtures/Library --follow-up "…" --show-excerpts
 ```
 
+Saved-conversation evidence on the real model uses a temporary folder with synthetic conversations (deleted afterwards; your own saved conversations are not read or changed):
+
+```sh
+swift run DeskMate --brief "The team will book the venue by 14 March. Maria Kowalska owns it. Catering is undecided."
+swift run DeskMate --tasks "…"     # same flow with a task list
+swift run DeskMate --resume-demo   # long synthetic chat, simulated restart, one real follow-up
+```
+
 `Fixtures/Library` is a synthetic “Project Lumen” set (TXT, Markdown, text and scanned PDFs, a Latin-1 file, and a line that tries to inject instructions). `Fixtures/make-library-pdfs.swift` regenerates the PDFs.
 
 `scripts/test.sh` exists because with only Command Line Tools selected, plain `swift test` cannot find the Testing framework: it either fails to compile (`no such module 'Testing'`) or builds and runs zero tests. The script reads the developer directory from `$DEVELOPER_DIR` (else `xcode-select -p`), adds the framework path only for Command Line Tools, fails if no tests ran, and is plain `swift test` under full Xcode.
 
-The app bundle is signed with `App/Resources/DeskMate.entitlements`: App Sandbox, read-only user-selected files with app-scoped bookmarks, and outgoing network (`network.client`) for Connections. The widget’s App Group is not proved yet and is handled in the widget package.
+The app bundle is signed with `App/Resources/DeskMate.entitlements`: App Sandbox, read-write user-selected files (only so Save as Markdown can write the file you name in the save panel) with app-scoped bookmarks, and outgoing network (`network.client`) for Connections. The widget’s App Group is not proved yet and is handled in the widget package.
 
 Apple Intelligence must be enabled, and it was unavailable on this Mac while the primary language was Polish; it worked after English became the primary language. The app shows the unavailable state honestly and opens the relevant System Settings pane on request, but never changes these settings.
 
 Answers are labelled “Apple on-device model · On this Mac”: local inference by Apple’s on-device model through Foundation Models. Apple does not expose the exact model version to apps, so the app does not state one. Connected services you approve may still receive the details shown before each call.
 
-The app writes no logs. `--diagnose-model` prints readiness only; `--ask` prints the answer to your terminal because you asked for it.
+The app writes no logs. `--diagnose-model` prints readiness only; `--ask`, `--brief`, `--tasks` and `--resume-demo` print their output to your terminal because you asked for it. Saved conversations contain the visible chat text by design (Settings says so) and are removed by Clear history.
 
 ## Intended runtime
 
