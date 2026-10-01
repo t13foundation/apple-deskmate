@@ -147,8 +147,15 @@ private struct CallRow: View {
 }
 
 /// A result a service returned and the model was given, under the label the answer cites (for example "M1").
+///
+/// The excerpt is exactly what the model was given, so the whole of it can be opened here (Show full) and selected. It
+/// is memory only: a reopened conversation keeps one summary line per call and never the reply.
 private struct ResultRow: View {
     let source: ToolSource
+    @State private var showsFull = false
+
+    /// Collapsed text is clipped to this many lines.
+    private static let collapsedLines = 6
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Spacing.s) {
@@ -156,25 +163,60 @@ private struct ResultRow: View {
                 .font(.dmCaption.weight(.semibold))
                 .foregroundStyle(Color.dmBrandText)
                 .frame(width: DS.Layout.iconWidth, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(source.title) · \(source.host)")
-                    .font(.dmCaption.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(source.excerpt)
-                    .font(.dmCaption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(6)
-                    .textSelection(.enabled)
-                if source.truncated {
-                    Text("Cut to fit the room left in this chat.")
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(source.title) · \(source.host)")
+                        .font(.dmCaption.weight(.medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    excerptText
+                    if source.truncated {
+                        Text("Cut to fit the room left in this chat.")
+                            .font(.dmCaption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                // One element that speaks the whole excerpt, whether or not the text is clipped on screen.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(source.id), result from \(source.connectionName), \(source.toolName)")
+                .accessibilityValue(spokenExcerpt)
+                if canExpand {
+                    Button(showsFull ? "Show less" : "Show full") { showsFull.toggle() }
+                        .buttonStyle(.link)
                         .font(.dmCaption)
-                        .foregroundStyle(.tertiary)
+                        .accessibilityLabel(showsFull ? "Show less of \(source.id)" : "Show the full result \(source.id)")
+                        .accessibilityValue(showsFull ? "Expanded" : "Collapsed")
+                        .accessibilityHint("Shows or hides the rest of what the service returned and the model received")
                 }
             }
             Spacer(minLength: 0)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(source.id), result from \(source.connectionName), \(source.toolName)")
+    }
+
+    @ViewBuilder private var excerptText: some View {
+        if showsFull {
+            // The excerpt is already bounded to what the model received; the transcript scrolls around it.
+            Text(source.excerpt)
+                .font(.dmCaption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(source.excerpt)
+                .font(.dmCaption)
+                .foregroundStyle(.secondary)
+                .lineLimit(Self.collapsedLines)
+                .textSelection(.enabled)
+        }
+    }
+
+    /// Short results fit in the collapsed view, so there is nothing to open.
+    private var canExpand: Bool {
+        source.excerpt.count > 320 || source.excerpt.split(separator: "\n", omittingEmptySubsequences: false).count > Self.collapsedLines
+    }
+
+    private var spokenExcerpt: String {
+        source.excerpt + (source.truncated ? " Cut to fit the room left in this chat." : "")
     }
 }

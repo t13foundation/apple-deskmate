@@ -1,14 +1,18 @@
+import AppKit
 import DeskMateCore
 import SwiftUI
 
 extension DS.Layout {
-    /// Width of the Review tool call sheet.
+    /// Ideal width of the Review tool call sheet, with the narrowest and widest it may take.
     static let approvalSheetWidth: CGFloat = 520
+    static let approvalSheetMinWidth: CGFloat = 460
+    static let approvalSheetMaxWidth: CGFloat = 680
 }
 
 /// Shows the oldest waiting tool call and nothing else can answer it: only these two buttons (or Escape, which denies)
 /// resolve the request. There is no "always allow", the sheet cannot be dismissed any other way, and Return does not
-/// allow. Keyboard focus starts on Deny so a stray key press never sends anything.
+/// allow. Keyboard focus starts on Deny so a stray key press never sends anything. Allow has no key equivalent at all:
+/// it takes a click, or Tab to it and Space. The inputs scroll in the middle; the title and the buttons stay in view.
 struct ToolApprovalModifier: ViewModifier {
     let broker: ToolApprovalBroker
 
@@ -40,9 +44,24 @@ struct ToolApprovalSheet: View {
     let broker: ToolApprovalBroker
 
     @State private var descriptionExpanded = false
+    @State private var contentHeight: CGFloat = 240
     @FocusState private var denyFocused: Bool
 
     private var preview: ToolCallPreview { request.preview }
+
+    /// The tallest the whole sheet may be: the smaller of the window it opens over and the screen, with a margin.
+    /// Long inputs scroll inside this; the title and the two buttons never leave the sheet.
+    private var maxSheetHeight: CGFloat {
+        let window = NSApp.keyWindow?.frame.height ?? .greatestFiniteMagnitude
+        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        return max(360, min(window, screen) - 80)
+    }
+
+    /// What is left for the scrolling part after the title block and the action bar.
+    private var scrollAreaCap: CGFloat { max(160, maxSheetHeight - Self.fixedChromeHeight) }
+
+    /// Rough height of the title block plus the action bar and its divider.
+    private static let fixedChromeHeight: CGFloat = 200
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -61,13 +80,23 @@ struct ToolApprovalSheet: View {
             }
             .padding([.top, .horizontal], DS.Spacing.panel)
 
-            VStack(alignment: .leading, spacing: DS.Spacing.m) {
-                facts
-                inputs
-                dataFlow
-                serviceDescription
+            // The facts, the exact inputs and the data-flow sentence scroll together, so a long input never pushes the
+            // buttons off screen and everything that will be sent can still be read in full.
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Spacing.m) {
+                    facts
+                    inputs
+                    dataFlow
+                    serviceDescription
+                }
+                .padding(DS.Spacing.panel)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
-            .padding(DS.Spacing.panel)
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(contentHeight, scrollAreaCap))
+
+            Divider()
 
             HStack {
                 Spacer()
@@ -85,9 +114,9 @@ struct ToolApprovalSheet: View {
                 .accessibilityHint("Sends the inputs shown to \(preview.host), this one time")
             }
             .controlSize(.large)
-            .padding([.horizontal, .bottom], DS.Spacing.panel)
+            .padding(DS.Spacing.panel)
         }
-        .frame(width: DS.Layout.approvalSheetWidth)
+        .frame(minWidth: DS.Layout.approvalSheetMinWidth, idealWidth: DS.Layout.approvalSheetWidth, maxWidth: DS.Layout.approvalSheetMaxWidth)
         .onAppear {
             denyFocused = true
             Announcer.post("Review tool call. \(preview.toolName) on \(preview.host). Allow or deny.")
@@ -136,6 +165,7 @@ struct ToolApprovalSheet: View {
                             Text(argument.value)
                                 .font(.system(size: DS.FontSize.body, design: .monospaced))
                                 .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .accessibilityElement(children: .combine)
