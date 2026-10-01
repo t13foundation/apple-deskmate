@@ -15,7 +15,10 @@ struct SettingsView: View {
             Section("Saved on this Mac") {
                 Text("DeskMate keeps your conversations so you can pick them up again: your questions, its answers, the source excerpts those answers showed, the names (not the contents) of files you attached, and the briefs or task lists you created.")
                     .fixedSize(horizontal: false, vertical: true)
-                Text("They are stored in DeskMate’s own folder on this Mac. Nothing is synced, uploaded or sent anywhere. Tokens for connections are kept in your Keychain, never in a conversation.")
+                Text("Saved conversations and My files stay on this Mac in DeskMate’s own folder. They are not synced or uploaded. Tokens for connections are kept in your Keychain, never in a conversation.")
+                    .dmFootnote()
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("When you approve a call to a connected service, the inputs shown in the review are sent to that service.")
                     .dmFootnote()
                     .fixedSize(horizontal: false, vertical: true)
             }
