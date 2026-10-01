@@ -27,7 +27,7 @@ Known limitations:
 - Checking a very long draft against the context limit can take several seconds before the message appears.
 - The model does not always follow length instructions exactly.
 - VoiceOver spoken output and the final accessibility pass belong to the later quality package.
-- Not implemented yet in this checkout: the desktop widget, the compact assistant panel, and the global shortcut and menu bar item. The prototype is not complete. See the Issues.
+- The desktop widget, compact panel, global shortcut and menu bar item are implemented in this checkout but not yet verified on the real desktop (see Desktop access below). The prototype is not complete. See the Issues.
 
 ### My files (Issue #3, WBS-PROT-02)
 
@@ -110,6 +110,32 @@ swift run -c release DeskMate --ask "Is the launch date in our plan still on tra
 
 Status: independently exercised with the real model and controlled loopback fixture in the signed sandboxed app. The Review sheet showed exact inputs; a denied call sent no request; approved calls reached the fixture; a corrective follow-up obtained the real status; cited M1 remained inspectable in a later answer without a new call. Retrieved-but-uncited file excerpts are labelled separately. Stop before a delayed reply retained the stopped state and the "may have reached" label after restart; a late reply did not replace it. Persisted records contained summaries, without credentials or raw replies. Focused tests cover the call cap, fail-closed inputs, approval/cancel boundaries, schema bridge and provenance. Named-file retrieval was verified against version 2, and Tab/Shift-Tab with the Mac's current keyboard settings no longer inserted a tab. Remaining acceptance includes a successful answer citing distinct file and service facts together, the final light/dark/compact accessibility pass, and the complete installed flow. The local model made real argument, reading and omission mistakes; a follow-up can help, and valid citation labels alone do not prove a sentence is supported. Full MCP/model-quality acceptance remains open in #7; this is not a completed prototype.
 
+### Desktop access (Issue #5, WBS-PROT-04)
+
+A desktop widget, an Option+Space shortcut and a menu bar item open a compact assistant panel. All three show the same conversation, history and files as the main window; nothing is copied.
+
+- **Widget** (`DeskMateWidget`, small and medium). Small: ready or needs attention with the time of the last update, and the whole widget opens the panel to ask. Medium: New chat, Ask my files, Resume (only when there is a saved conversation) and a one-line status of the last question. It has no text field, runs no model and shows no live progress; the timeline never refreshes by itself and the app asks WidgetKit to reload it when something changes.
+- **Links.** `deskmate://ask`, `deskmate://new`, `deskmate://files` and `deskmate://resume?id=<conversation id>`. Anything else (extra parts, unknown words, a malformed id) is ignored. Resume of a conversation that was deleted shows “That conversation is no longer available.” New chat and Resume are refused with a notice while an answer is being written, so an answer is never thrown away by a link.
+- **Compact panel** (about 460 × 560, rounded). It opens in the current Space, ready for typing; Escape closes it unless an answer is being written (then Escape stops the answer, as in the window). Pin keeps it above other windows without taking focus and without joining full-screen Spaces; unpinned it hides when you switch to another app. Open in main window carries the conversation over; opening My files, Connections or a source from the panel does the same. Attach works from the panel.
+- **Shortcut.** Option+Space by default through Carbon `RegisterEventHotKey` (no Accessibility or Input Monitoring permission, and DeskMate sees no other key). Settings (⌘,) has Change shortcut…, Use ⌥Space and Turn off. A combination that another app or macOS already owns is explained in plain words, and the working shortcut stays. The menu bar item (Ask DeskMate, New chat, Open DeskMate, Settings…, Quit, and a generic status line) is always there. Closing the window no longer quits DeskMate; Quit is in the menu bar menu and the app menu.
+- **Shared snapshot.** The app writes `widget-snapshot.json` to the App Group container: version, ready or needs attention, time, whether any conversation exists, one opaque conversation id, and a generic last-task word (answered, stopped, didn’t finish). Never document text, prompts, titles, file names, answers or credentials. Deleting a conversation or Clear history updates or removes it and reloads the widget. Without the App Group the widget says “Open DeskMate” and shows no status.
+- **Timing.** Opening the panel from a shortcut press or widget link is measured from the trigger to the message field becoming the first responder and logged without any content: `log stream --predicate 'subsystem == "com.t13foundation.DeskMate" AND category == "DesktopAccess"' --level info` (also an `os_signpost` interval named PanelOpen). No number is claimed until it is read from this log on the target Mac.
+
+Status: compiled and unit-tested with synthetic data (snapshot privacy and encoding, strict routes, deletion and clear updating the snapshot, shortcut persistence and conflict wording, widget wording). The widget has not been installed in the real desktop gallery, the links have not been proved cold and warm, the shortcut and panel have not been exercised on screen, and the App Group has not been proved with a signed build. Those are host steps below; this is not a completed package.
+
+Host steps (signing needs your own identity and Team ID; the build script never contacts Apple and never installs or registers anything):
+
+```sh
+bash scripts/build-app.sh --sign "<Apple Development identity>" --team <TEAMID>
+codesign --verify --deep --strict --verbose=2 dist/DeskMate.app
+codesign -d --entitlements - dist/DeskMate.app/Contents/PlugIns/DeskMateWidget.appex
+cp -R dist/DeskMate.app ~/Applications/DeskMate.app
+open ~/Applications/DeskMate.app
+pluginkit -mAvvv -p com.apple.widgetkit-extension      # DeskMate Widget should be listed
+```
+
+Then right-click the desktop, choose Edit Widgets and find DeskMate. `--team` sets the App Group `<TEAMID>.com.t13foundation.DeskMate` on both bundles and stamps it as `DeskMateAppGroupIdentifier` in their Info.plist files. The extension is signed first and the app second, never with `--deep`. The default ad-hoc build assembles the same structure but macOS will not offer the widget for it.
+
 ## Build, test and run
 
 Requires macOS 26 and Swift 6.2 or later. The commands below were run on the target Mac with Xcode 27.0 selected per command through `DEVELOPER_DIR`; `xcode-select` still points to Command Line Tools and is not changed. `scripts/test.sh` also passes with Command Line Tools. The deployment target stays macOS 26, and the code must compile warning-free against both SDKs without macOS 27 APIs.
@@ -118,7 +144,7 @@ Requires macOS 26 and Swift 6.2 or later. The commands below were run on the tar
 export DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer   # omit to use the selected toolchain
 swift build -c release            # compile
 bash scripts/test.sh              # focused tests
-bash scripts/build-app.sh         # assemble and ad-hoc sign dist/DeskMate.app (sandboxed)
+bash scripts/build-app.sh         # assemble and ad-hoc sign dist/DeskMate.app with the widget in Contents/PlugIns (sandboxed)
 open dist/DeskMate.app
 dist/DeskMate.app/Contents/MacOS/DeskMate --diagnose-model   # print model readiness and exit (0 ready, 3 not ready)
 dist/DeskMate.app/Contents/MacOS/DeskMate --ask "What is a budget?"   # one real on-device generation; refuses if the model is not ready
@@ -127,8 +153,10 @@ dist/DeskMate.app/Contents/MacOS/DeskMate --ask "What is a budget?"   # one real
 To sign with a free Personal Team identity instead of ad-hoc:
 
 ```sh
-bash scripts/build-app.sh --sign "<Apple Development identity>"
+bash scripts/build-app.sh --sign "<Apple Development identity>" --team <TEAMID>
 ```
+
+`--team` is optional and only adds the App Group for the widget snapshot (see Desktop access).
 
 For development, `swift run DeskMate`, `swift run DeskMate --diagnose-model` and `swift run DeskMate --ask "…"` run the same entry points without assembling the app bundle.
 
@@ -153,7 +181,7 @@ swift run DeskMate --resume-demo   # long synthetic chat, simulated restart, one
 
 `scripts/test.sh` exists because with only Command Line Tools selected, plain `swift test` cannot find the Testing framework: it either fails to compile (`no such module 'Testing'`) or builds and runs zero tests. The script reads the developer directory from `$DEVELOPER_DIR` (else `xcode-select -p`), adds the framework path only for Command Line Tools, fails if no tests ran, and is plain `swift test` under full Xcode.
 
-The app bundle is signed with `App/Resources/DeskMate.entitlements`: App Sandbox, read-write user-selected files (only so Save as Markdown can write the file you name in the save panel) with app-scoped bookmarks, and outgoing network (`network.client`) for Connections. The widget’s App Group is not proved yet and is handled in the widget package.
+The app bundle is signed with `App/Resources/DeskMate.entitlements`: App Sandbox, read-write user-selected files (only so Save as Markdown can write the file you name in the save panel) with app-scoped bookmarks, and outgoing network (`network.client`) for Connections. With `--team`, the app and the sandboxed widget extension (`App/Resources/DeskMateWidget.entitlements`, App Sandbox only) also get the App Group; whether macOS grants it to your signed build is a host check.
 
 Apple Intelligence must be enabled, and it was unavailable on this Mac while the primary language was Polish; it worked after English became the primary language. The app shows the unavailable state honestly and opens the relevant System Settings pane on request, but never changes these settings.
 
@@ -165,6 +193,6 @@ The app writes no logs. `--diagnose-model` prints readiness only; `--ask`, `--br
 
 macOS 26 or later, an Apple Intelligence-compatible Mac, and an available on-device SystemLanguageModel. Swift, SwiftUI, Foundation Models, WidgetKit, App Intents, and the official MCP Swift SDK. No paid model API or macOS 27 upgrade is required for the initial scope.
 
-Turn on Apple Intelligence in System Settings before asking a question; the app opens that pane on request but never changes the setting. Apple Intelligence availability and English support are checked at runtime. Xcode 27.0 is used with the macOS 26 deployment target; the widget extension still needs App Group and signing proof on the target Mac in the widget work package. Possession of a Developer Program membership is not assumed.
+Turn on Apple Intelligence in System Settings before asking a question; the app opens that pane on request but never changes the setting. Apple Intelligence availability and English support are checked at runtime. Xcode 27.0 is used with the macOS 26 deployment target; the widget extension still needs App Group, signing and desktop-gallery proof on the target Mac (host steps under Desktop access). Possession of a Developer Program membership is not assumed.
 
 Use synthetic English samples for demonstrations. MCP can transmit data outside the Mac; connecting a server is a separate trust decision.
