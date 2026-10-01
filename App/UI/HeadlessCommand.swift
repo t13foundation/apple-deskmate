@@ -9,6 +9,8 @@ enum HeadlessCommand {
     case diagnoseModel
     case ask(String)
     case askAboutFiles(HeadlessFilesRequest)
+    case result(ResultKind, String)
+    case resumeDemo
     case usage(String?)
 
     init?(arguments: [String]) {
@@ -16,6 +18,11 @@ enum HeadlessCommand {
         switch first {
         case "--diagnose-model":
             self = .diagnoseModel
+        case "--brief", "--tasks":
+            let text = arguments.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            self = text.isEmpty ? .usage("\(first) needs the text of an answer, e.g. \(first) \"The venue is booked.\"") : .result(first == "--brief" ? .brief : .tasks, text)
+        case "--resume-demo":
+            self = .resumeDemo
         case "--ask", "--compare":
             let rest = first == "--ask" ? Array(arguments.dropFirst()) : arguments
             switch HeadlessFilesRequest.parse(rest) {
@@ -40,9 +47,12 @@ enum HeadlessCommand {
         case .usage(let problem):
             if let problem { print("error: \(problem)") }
             print("""
-            usage: DeskMate [--diagnose-model | --ask "<question>" [file options] | --help]
+            usage: DeskMate [--diagnose-model | --ask "<question>" [file options] | --brief "<text>" | --tasks "<text>" | --resume-demo | --help]
               --diagnose-model  print model availability, English support and context size, then exit
               --ask "<q>"       run one real on-device generation and print timing and answer
+              --brief "<text>"  save a synthetic conversation whose answer is <text>, reopen it, create a brief
+              --tasks "<text>"  the same, with a task list (Task / Owner / Due date / Evidence)
+              --resume-demo     save a long synthetic conversation, simulate a restart, ask one real follow-up
             file options (real on-device answers about files you name; nothing is saved):
               --library <folder>         index this folder in memory and let the model search it
               --attach <file>            attach a file to the question (repeat, up to 5)
@@ -56,6 +66,12 @@ enum HeadlessCommand {
 
         case .askAboutFiles(let request):
             return await HeadlessFilesAsk.run(request)
+
+        case .result(let kind, let text):
+            return await HeadlessConversations.result(kind: kind, text: text)
+
+        case .resumeDemo:
+            return await HeadlessConversations.resumeDemo()
 
         case .diagnoseModel:
             let snapshot = SystemModelProbe.snapshot()
