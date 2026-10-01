@@ -40,10 +40,16 @@ public protocol ConversationEngine: AnyObject {
     /// Creates a brief or a task list from the visible conversation in a separate one-shot session, so the chat's own
     /// context is not touched. Refuses, without sending anything, a conversation that does not fit.
     func makeResult(_ request: ResultRequest) async throws -> ResultOutcome
+
+    /// Stop: ends every pending approval and abandons any request in flight, so nothing waiting can still be sent.
+    func stopToolActivity()
 }
 
 public extension ConversationEngine {
     func prewarm() {}
+
+    /// Default: an engine with no connected services has nothing to stop.
+    func stopToolActivity() {}
 
     /// Default: the budget check with the conservative estimator.
     func restoreHistory(_ turns: [ConversationTurn]) async -> Int {

@@ -193,7 +193,10 @@ public final class ConversationController {
                 guard epoch == self.epoch else { return }
                 latest = turnUpdate.text
                 activity = turnUpdate.activity
-                update(answer.id) { $0.text = turnUpdate.text }
+                update(answer.id) {
+                    $0.text = turnUpdate.text
+                    if let calls = turnUpdate.toolCalls { $0.toolCalls = calls }
+                }
             }
         } catch {
             guard epoch == self.epoch else { return }
@@ -233,6 +236,8 @@ public final class ConversationController {
             $0.removedCitations = grounded?.removedCitations ?? []
             $0.consultedCount = grounded?.consultedCount ?? 0
             $0.comparedMaterial = grounded?.comparedMaterial ?? []
+            $0.toolSources = grounded?.toolSources ?? []
+            if let calls = grounded?.toolCalls, !calls.isEmpty { $0.toolCalls = calls }
         }
         return text
     }
@@ -265,6 +270,8 @@ public final class ConversationController {
     /// Stops generation. The question stays, the partial answer is kept and marked as stopped.
     public func cancel() {
         guard isBusy else { return }
+        // First, so an approval that is waiting ends as stopped and a request in flight is abandoned.
+        engine.stopToolActivity()
         generation?.cancel()
     }
 

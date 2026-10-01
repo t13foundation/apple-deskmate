@@ -30,6 +30,12 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
     public var comparedMaterial: [SourceCitation]
     /// Files attached to a question (user messages only).
     public var attachments: [AttachmentSummary]
+    /// Connected-service calls the model made for this answer, as they happened. Memory only.
+    public var toolCalls: [ToolCallRecord]
+    /// Results of those calls that the answer cites ("[M1]"). Memory only: never saved.
+    public var toolSources: [ToolSource]
+    /// The saved one-line-per-call summary of an answer reopened from history. A live answer derives it from `toolCalls`.
+    public var toolSummary: String?
 
     public init(
         id: UUID = UUID(),
@@ -41,8 +47,14 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
         removedCitations: [String] = [],
         consultedCount: Int = 0,
         comparedMaterial: [SourceCitation] = [],
-        attachments: [AttachmentSummary] = []
+        attachments: [AttachmentSummary] = [],
+        toolCalls: [ToolCallRecord] = [],
+        toolSources: [ToolSource] = [],
+        toolSummary: String? = nil
     ) {
+        self.toolCalls = toolCalls
+        self.toolSources = toolSources
+        self.toolSummary = toolSummary
         self.id = id
         self.role = role
         self.text = text
@@ -54,6 +66,22 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
         self.comparedMaterial = comparedMaterial
         self.attachments = attachments
     }
+}
+
+public extension ChatMessage {
+    /// One visible line per connected-service call. Live calls first; for a reopened answer, the saved lines.
+    var toolActivityLines: [String] {
+        if !toolCalls.isEmpty { return toolCalls.map(\.summaryLine) }
+        return (toolSummary ?? "").split(separator: "\n").map(String.init)
+    }
+
+    /// Hosts a request may have reached for this answer. Empty when no request was made (including when every call was declined).
+    var remoteHosts: [String] {
+        toolCalls.isEmpty ? ToolCallRecord.remoteHosts(inSummary: toolSummary) : ToolCallRecord.remoteHosts(of: toolCalls)
+    }
+
+    /// True when the model asked for any service call, even if it was declined or refused.
+    var usedServices: Bool { !toolCalls.isEmpty || toolSummary != nil }
 }
 
 /// What the transcript shows about a file attached to a question. Never contains the file's text.

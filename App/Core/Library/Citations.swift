@@ -52,24 +52,45 @@ public struct GroundedAnswer: Equatable, Sendable {
     /// For a document comparison: every excerpt the extraction stages read, in reading order. This is the material the
     /// answer was built from, not a per-fact citation, so it is kept apart from `sources`.
     public var comparedMaterial: [SourceCitation]
+    /// Cited connected-service results ("[M1]") that really were given to the model, in order of first mention.
+    /// Memory only; see `ToolSource`.
+    public var toolSources: [ToolSource]
+    /// Every connected-service call the model made for this answer (allowed, denied, refused or failed), set by the engine.
+    public var toolCalls: [ToolCallRecord]
 
-    public init(text: String, sources: [SourceCitation] = [], removedCitations: [String] = [], consultedCount: Int = 0, comparedMaterial: [SourceCitation] = []) {
+    public init(
+        text: String,
+        sources: [SourceCitation] = [],
+        removedCitations: [String] = [],
+        consultedCount: Int = 0,
+        comparedMaterial: [SourceCitation] = [],
+        toolSources: [ToolSource] = [],
+        toolCalls: [ToolCallRecord] = []
+    ) {
+        self.toolCalls = toolCalls
         self.text = text
         self.sources = sources
         self.removedCitations = removedCitations
         self.consultedCount = consultedCount
         self.comparedMaterial = comparedMaterial
+        self.toolSources = toolSources
     }
 }
 
 public enum CitationValidator {
-    // "[S3]" or "[S1, S2]". Nothing else counts as a citation.
-    private static let pattern = try! NSRegularExpression(pattern: #"\[\s*S\d+(?:\s*[,;]\s*S\d+)*\s*\]"#)
-    private static let identifier = try! NSRegularExpression(pattern: #"S\d+"#)
+    // "[S3]", "[M1]" or "[S1, M2]". Nothing else counts as a citation. S labels are file excerpts, M labels are results
+    // that a connected service returned.
+    private static let pattern = try! NSRegularExpression(pattern: #"\[\s*[SM]\d+(?:\s*[,;]\s*[SM]\d+)*\s*\]"#)
+    private static let identifier = try! NSRegularExpression(pattern: #"[SM]\d+"#)
 
     /// Keeps only citations whose ID was really given to the model. Unknown IDs are removed from the text
     /// and reported; they are never turned into sources.
-    public static func ground(_ text: String, given: [String: SourceCitation], consulted: Int) -> GroundedAnswer {
+    public static func ground(
+        _ text: String,
+        given: [String: SourceCitation],
+        givenTools: [String: ToolSource] = [:],
+        consulted: Int
+    ) -> GroundedAnswer {
         let nsText = text as NSString
         let matches = pattern.matches(in: text, range: NSRange(location: 0, length: nsText.length))
 
@@ -85,8 +106,9 @@ public enum CitationValidator {
             let body = nsText.substring(with: match.range)
             let ids = identifier.matches(in: body, range: NSRange(location: 0, length: (body as NSString).length))
                 .map { (body as NSString).substring(with: $0.range) }
-            let valid = ids.filter { given[$0] != nil }
-            for id in ids where given[id] == nil && !removed.contains(id) { removed.append(id) }
+            func isGiven(_ id: String) -> Bool { given[id] != nil || givenTools[id] != nil }
+            let valid = ids.filter(isGiven)
+            for id in ids where !isGiven(id) && !removed.contains(id) { removed.append(id) }
             for id in valid where !cited.contains(id) { cited.append(id) }
 
             if valid.count == ids.count {
@@ -104,7 +126,8 @@ public enum CitationValidator {
             text: output,
             sources: cited.compactMap { given[$0] },
             removedCitations: removed,
-            consultedCount: consulted
+            consultedCount: consulted,
+            toolSources: cited.compactMap { givenTools[$0] }
         )
     }
 }
@@ -126,6 +149,8 @@ public final class SourceLedger: Sendable {
         var nextNumber = 1
         var labelByChunk: [String: String] = [:]
         var given: [String: SourceCitation] = [:]
+        var nextToolNumber = 1
+        var givenTools: [String: ToolSource] = [:]
         var consultedThisTurn = 0
         var comparedThisTurn: [SourceCitation] = []
         var searchesThisTurn = 0
@@ -197,10 +222,40 @@ public final class SourceLedger: Sendable {
         state.withLock { Set($0.given.keys) }
     }
 
+    /// Records a result a connected service returned, at the moment it is handed to the model, under the next "M" label.
+    /// Only recorded results can ever be cited as "[M#]". The label is stable for the whole conversation.
+    public func recordToolResult(
+        connectionName: String,
+        host: String,
+        toolName: String,
+        arguments: [ToolCallArgument],
+        excerpt: String,
+        truncated: Bool
+    ) -> ToolSource {
+        state.withLock { state in
+            let source = ToolSource(
+                id: "M\(state.nextToolNumber)",
+                connectionName: connectionName,
+                host: host,
+                toolName: toolName,
+                arguments: arguments,
+                excerpt: excerpt,
+                truncated: truncated
+            )
+            state.nextToolNumber += 1
+            state.givenTools[source.id] = source
+            return source
+        }
+    }
+
+    public var givenToolLabels: Set<String> {
+        state.withLock { Set($0.givenTools.keys) }
+    }
+
     public func ground(_ text: String) -> GroundedAnswer {
-        let snapshot = state.withLock { ($0.given, $0.consultedThisTurn, $0.comparedThisTurn) }
-        var grounded = CitationValidator.ground(text, given: snapshot.0, consulted: snapshot.1)
-        grounded.comparedMaterial = snapshot.2
+        let snapshot = state.withLock { ($0.given, $0.givenTools, $0.consultedThisTurn, $0.comparedThisTurn) }
+        var grounded = CitationValidator.ground(text, given: snapshot.0, givenTools: snapshot.1, consulted: snapshot.2)
+        grounded.comparedMaterial = snapshot.3
         return grounded
     }
 
@@ -209,6 +264,7 @@ public final class SourceLedger: Sendable {
     public func dropGiven() {
         state.withLock {
             $0.given = [:]
+            $0.givenTools = [:]
             $0.consultedThisTurn = 0
             $0.comparedThisTurn = []
         }

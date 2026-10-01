@@ -26,4 +26,16 @@ public struct ModelProvenance: Equatable, Sendable {
         detail: "Answered by Apple's on-device foundation model through the Foundation Models framework. Model inference stays on this Mac; no cloud model is used. Connected services you approve may receive the details shown before each call. Apple does not expose the exact model version to apps.",
         footnote: "Answers come from Apple’s on-device model and can be wrong."
     )
+
+    /// The header of an answer for which a connected service was asked. It names only the model, because "On this Mac"
+    /// would be wrong next to a request that left it; the remote label below says where the data went.
+    public static let inferenceOnlyLabel = "Apple on-device model"
+
+    /// The separate label for an answer that involved connected services, or nil when none did.
+    /// `hosts` are the places a request may have reached (empty when every call was declined or refused).
+    public static func remoteLabel(hosts: [String], usedServices: Bool) -> String? {
+        if !hosts.isEmpty { return "Remote connection: sent data to \(hosts.joined(separator: ", "))" }
+        if usedServices { return "Remote connection: nothing was sent" }
+        return nil
+    }
 }

@@ -200,7 +200,9 @@ public extension StoredMessage {
             removedCitations: message.removedCitations,
             consultedCount: message.consultedCount,
             comparedMaterial: message.comparedMaterial,
-            attachments: message.attachments.map { StoredAttachment(id: $0.id, fileName: $0.fileName, kind: $0.kind) }
+            attachments: message.attachments.map { StoredAttachment(id: $0.id, fileName: $0.fileName, kind: $0.kind) },
+            // One visible line per call. Never the inputs, the service's reply or the headers.
+            toolSummary: ToolCallRecord.summary(of: message.toolCalls) ?? message.toolSummary
         )
     }
 
@@ -221,7 +223,8 @@ public extension StoredMessage {
             removedCitations: removedCitations,
             consultedCount: consultedCount,
             comparedMaterial: comparedMaterial,
-            attachments: attachments.map { AttachmentSummary(id: $0.id, fileName: $0.fileName, kind: $0.kind) }
+            attachments: attachments.map { AttachmentSummary(id: $0.id, fileName: $0.fileName, kind: $0.kind) },
+            toolSummary: toolSummary
         )
     }
 }
