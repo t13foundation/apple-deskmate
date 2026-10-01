@@ -158,17 +158,151 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
         guard let summary else { return [] }
         var seen: [String] = []
         for line in summary.split(separator: "\n") {
-            let text = String(line)
-            guard let range = text.range(of: "Asked ") else { continue }
-            guard text[..<range.lowerBound].allSatisfy({ $0 == "]" || $0 == " " || $0 == "M" || $0.isNumber || $0 == "[" }) else { continue }
-            // "Asked Name (host): tool (approved)": the host is the last "(...)" before the colon.
-            guard let colon = text.range(of: "): ", range: range.upperBound..<text.endIndex) else { continue }
-            let head = text[range.upperBound..<colon.lowerBound]
-            guard let open = head.lastIndex(of: "(") else { continue }
-            let host = String(head[head.index(after: open)...])
-            if !host.isEmpty, !seen.contains(host) { seen.append(host) }
+            if let host = askedHost(inLine: String(line)), !seen.contains(host) { seen.append(host) }
         }
         return seen
+    }
+
+    /// The host of one saved "Asked ..." line, or nil for any other kind of line ("Not sent to", "Declined").
+    static func askedHost(inLine text: String) -> String? {
+        guard let range = text.range(of: "Asked ") else { return nil }
+        guard text[..<range.lowerBound].allSatisfy({ $0 == "]" || $0 == " " || $0 == "M" || $0.isNumber || $0 == "[" }) else { return nil }
+        // "Asked Name (host): tool (approved)": the host is the last "(...)" before the colon.
+        guard let colon = text.range(of: "): ", range: range.upperBound..<text.endIndex) else { return nil }
+        let head = text[range.upperBound..<colon.lowerBound]
+        guard let open = head.lastIndex(of: "(") else { return nil }
+        let host = String(head[head.index(after: open)...])
+        return host.isEmpty ? nil : host
+    }
+
+    /// The label a saved line starts with ("[M1] Asked ..." gives "M1"). Only a call that returned a result carries one.
+    static func label(inSummaryLine line: String) -> String? {
+        guard line.hasPrefix("[M"), let close = line.firstIndex(of: "]") else { return nil }
+        let label = String(line[line.index(after: line.startIndex)..<close])
+        return label.dropFirst().allSatisfy(\.isNumber) && label.count > 1 ? label : nil
+    }
+
+    /// Saved lines that carry a result label, in order: the results the model was given in an answer.
+    static func labelledLines(in lines: [String]) -> [(label: String, line: String)] {
+        lines.compactMap { line in label(inSummaryLine: line).map { ($0, line) } }
+    }
+}
+
+/// One service result as the answer's evidence list shows it: either cited by the answer, or only retrieved for it.
+/// A retrieved result is never a citation and backs no claim in the answer.
+public struct ToolResultItem: Identifiable, Equatable, Sendable {
+    public enum Kind: String, Sendable {
+        /// The answer cites it as "[M#]".
+        case cited
+        /// DeskMate gave it to the model for this answer, but the answer does not cite it.
+        case retrieved
+    }
+
+    public let kind: Kind
+    /// "M1".
+    public let label: String
+    /// The result as it was given to the model. Nil once the app was restarted: raw results are never saved.
+    public let source: ToolSource?
+    /// The saved one-line summary of the call, when one is known.
+    public let summaryLine: String?
+    /// True when the result was retrieved in an earlier answer, not by a call in this one.
+    public let retrievedEarlier: Bool
+
+    public var id: String { "\(kind.rawValue)-\(label)" }
+
+    /// The text shown when only the summary survived.
+    public static let notKeptNote = "Result not kept after restart"
+    public static let earlierNote = "Retrieved in an earlier answer"
+
+    public init(kind: Kind, label: String, source: ToolSource?, summaryLine: String?, retrievedEarlier: Bool) {
+        self.kind = kind
+        self.label = label
+        self.source = source
+        self.summaryLine = summaryLine
+        self.retrievedEarlier = retrievedEarlier
+    }
+
+    /// The service host, from the result itself or from the saved summary line.
+    public var host: String? {
+        source?.host ?? summaryLine.flatMap { ToolCallRecord.askedHost(inLine: $0) }
+    }
+
+    /// "Cited" or "Retrieved, not cited".
+    public var kindWord: String { kind == .cited ? "Cited" : "Retrieved, not cited" }
+
+    /// What a screen reader announces as the row's label: kind, label and source. The body is the accessibility value.
+    public var spokenLabel: String {
+        var text = "\(kindWord), \(label), service result"
+        if let source {
+            text += " from \(source.connectionName), \(source.toolName) on \(source.host)"
+        } else if let host {
+            text += " from \(host)"
+        }
+        if retrievedEarlier { text += ", \(Self.earlierNote.lowercased())" }
+        return text
+    }
+
+    /// What a screen reader announces as the row's value: the body that exists, never an invented one.
+    public var spokenBody: String {
+        if let source { return source.excerpt + (source.truncated ? " Cut to fit the room left in this chat." : "") }
+        return [summaryLine, Self.notKeptNote].compactMap { $0 }.joined(separator: ". ")
+    }
+}
+
+public extension ChatMessage {
+    /// Service results that belong to this answer's evidence: the ones it cites, then the ones only retrieved for it.
+    ///
+    /// Live, the results come from the answer's memory. After a restart only the saved summary lines survive, so a row
+    /// then carries its summary and "Result not kept after restart" and never any text. A result cited from an earlier
+    /// answer has no line of its own here; `earlierSummaries` (label to line, from the earlier answers) supplies one.
+    func toolResultItems(earlierSummaries: [String: String] = [:]) -> [ToolResultItem] {
+        guard role == .assistant else { return [] }
+        let own = ToolCallRecord.labelledLines(in: toolActivityLines)
+        func ownLine(_ label: String) -> String? { own.first { $0.label == label }?.line }
+
+        var cited = CitationValidator.toolLabels(in: text)
+        for source in toolSources where !cited.contains(source.id) { cited.append(source.id) }
+
+        var items: [ToolResultItem] = []
+        for label in cited {
+            let live = toolSources.first { $0.id == label }
+            let line = ownLine(label)
+            // Live, the ledger said whether this turn retrieved it. After a restart, a label with no line of its own
+            // can only have been retrieved earlier.
+            let earlier = live != nil ? earlierToolLabels.contains(label) : line == nil
+            items.append(ToolResultItem(kind: .cited, label: label, source: live, summaryLine: line ?? earlierSummaries[label], retrievedEarlier: earlier))
+        }
+        var listed = Set(cited)
+        for source in retrievedToolSources where listed.insert(source.id).inserted {
+            items.append(ToolResultItem(kind: .retrieved, label: source.id, source: source, summaryLine: ownLine(source.id), retrievedEarlier: false))
+        }
+        // After a restart: a call that returned a result but is not cited in the answer.
+        for entry in own where listed.insert(entry.label).inserted {
+            items.append(ToolResultItem(kind: .retrieved, label: entry.label, source: nil, summaryLine: entry.line, retrievedEarlier: false))
+        }
+        return items
+    }
+
+    /// Hosts of results this answer cites but did not retrieve itself. It sent nothing for them in this answer.
+    func earlierResultHosts(earlierSummaries: [String: String] = [:]) -> [String] {
+        var hosts: [String] = []
+        for item in toolResultItems(earlierSummaries: earlierSummaries) where item.kind == .cited && item.retrievedEarlier {
+            if let host = item.host, !hosts.contains(host) { hosts.append(host) }
+        }
+        return hosts
+    }
+
+    /// Saved summary lines of the answers before `id`, by result label, nearest answer first. Lets an answer that cites
+    /// an earlier "[M1]" show where that result came from, also after a restart.
+    static func earlierToolSummaries(in messages: [ChatMessage], before id: UUID) -> [String: String] {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return [:] }
+        var found: [String: String] = [:]
+        for message in messages[..<index].reversed() where message.role == .assistant {
+            for entry in ToolCallRecord.labelledLines(in: message.toolActivityLines) where found[entry.label] == nil {
+                found[entry.label] = entry.line
+            }
+        }
+        return found
     }
 }
 

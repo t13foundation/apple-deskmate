@@ -138,7 +138,7 @@ struct AssistantMessageView: View {
             }
             .accessibilityElement(children: .combine)
 
-            CitationsView(message: message)
+            CitationsView(message: message, earlierSummaries: earlierSummaries)
             ToolActivityView(message: message)
 
             if message.status != .streaming, !message.text.isEmpty {
@@ -163,8 +163,15 @@ struct AssistantMessageView: View {
             }
             .accessibilityElement(children: .combine)
             ProvenanceInfoButton()
-            RemoteConnectionLabel(message: message)
+            RemoteConnectionLabel(message: message, earlierSummaries: earlierSummaries)
         }
+    }
+
+    /// Saved lines of the answers before this one, by result label. Only an answer that cites a result can need them, so
+    /// the others skip the walk through the conversation.
+    private var earlierSummaries: [String: String] {
+        guard message.text.contains("[M") else { return [:] }
+        return ChatMessage.earlierToolSummaries(in: controller.messages, before: message.id)
     }
 
     @ViewBuilder private var content: some View {

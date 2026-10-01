@@ -5,6 +5,8 @@ import SwiftUI
 /// it: the model ran on this Mac, and this says where, if anywhere, data was sent.
 struct RemoteConnectionLabel: View {
     let message: ChatMessage
+    /// Saved lines of earlier answers by result label, so a cited earlier result can name where it came from.
+    var earlierSummaries: [String: String] = [:]
 
     var body: some View {
         if let text = ModelProvenance.remoteLabel(hosts: message.remoteHosts, usedServices: message.usedServices) {
@@ -15,11 +17,22 @@ struct RemoteConnectionLabel: View {
                 .truncationMode(.middle)
                 .accessibilityLabel(text)
         }
+        // An answer that only cites a result from an earlier answer sent nothing itself. This says so, and where the
+        // result came from; it never claims a new send.
+        if let earlier = ModelProvenance.earlierResultLabel(hosts: message.earlierResultHosts(earlierSummaries: earlierSummaries)) {
+            Label(earlier, systemImage: "clock.arrow.circlepath")
+                .font(.dmCaption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityLabel(earlier)
+        }
     }
 }
 
 /// Collapsible "Tool activity" under an answer: every service call the model asked for and what happened to it. A live
-/// answer shows the calls and the results it cited; a reopened one shows the saved one-line summaries only.
+/// answer shows the calls; a reopened one shows the saved one-line summaries only. The results themselves, cited or only
+/// retrieved, are listed with the sources (`CitationsView`), whether or not this answer made a call.
 struct ToolActivityView: View {
     let message: ChatMessage
     @State private var expanded = false
@@ -55,9 +68,6 @@ struct ToolActivityView: View {
                     } else {
                         ForEach(message.toolCalls) { call in
                             CallRow(call: call)
-                        }
-                        ForEach(message.toolSources) { source in
-                            ResultRow(source: source)
                         }
                     }
                 }
@@ -146,12 +156,14 @@ private struct CallRow: View {
     }
 }
 
-/// A result a service returned and the model was given, under the label the answer cites (for example "M1").
+/// One service result in an answer's evidence lists, either cited ("M1" in the answer) or only retrieved for it.
 ///
-/// The excerpt is exactly what the model was given, so the whole of it can be opened here (Show full) and selected. It
-/// is memory only: a reopened conversation keeps one summary line per call and never the reply.
-private struct ResultRow: View {
-    let source: ToolSource
+/// With the result in memory the row is an inspector: connection, host, tool, the exact inputs, and the excerpt exactly
+/// as the model was given it (Show full opens all of it and it can be selected). After a restart the raw result is gone
+/// by design, so the row shows the saved summary line and says "Result not kept after restart"; it never shows text
+/// that was not kept. A retrieved row is never presented as a citation.
+struct ToolResultRow: View {
+    let item: ToolResultItem
     @State private var showsFull = false
 
     /// Collapsed text is clipped to this many lines.
@@ -159,33 +171,49 @@ private struct ResultRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Spacing.s) {
-            Text(source.id)
+            Text(item.label)
                 .font(.dmCaption.weight(.semibold))
-                .foregroundStyle(Color.dmBrandText)
-                .frame(width: DS.Layout.iconWidth, alignment: .leading)
+                .foregroundStyle(item.kind == .cited ? Color.dmBrandText : Color.secondary)
+                .frame(minWidth: DS.Spacing.xl, alignment: .leading)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(source.title) · \(source.host)")
-                        .font(.dmCaption.weight(.medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    excerptText
-                    if source.truncated {
-                        Text("Cut to fit the room left in this chat.")
-                            .font(.dmCaption)
-                            .foregroundStyle(.tertiary)
+                    if let source = item.source {
+                        Text("\(source.title) · \(source.host)")
+                            .font(.dmCaption.weight(.medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if item.retrievedEarlier { note(ToolResultItem.earlierNote) }
+                        ForEach(source.arguments) { argument in
+                            Text("\(argument.name) = \(argument.value)")
+                                .font(.system(size: DS.FontSize.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                        }
+                        excerptText(source)
+                        if source.truncated { note("Cut to fit the room left in this chat.") }
+                    } else {
+                        // Restart: the summary line is all that was saved.
+                        if let line = item.summaryLine {
+                            Text(line)
+                                .font(.dmCaption.weight(.medium))
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                        }
+                        if item.retrievedEarlier { note(ToolResultItem.earlierNote) }
+                        note(ToolResultItem.notKeptNote)
                     }
                 }
-                // One element that speaks the whole excerpt, whether or not the text is clipped on screen.
+                // One element: labelled with its kind, label and source; the body is its value, clipped on screen or not.
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(source.id), result from \(source.connectionName), \(source.toolName)")
-                .accessibilityValue(spokenExcerpt)
-                if canExpand {
+                .accessibilityLabel(item.spokenLabel)
+                .accessibilityValue(item.spokenBody)
+                if let source = item.source, canExpand(source) {
                     Button(showsFull ? "Show less" : "Show full") { showsFull.toggle() }
                         .buttonStyle(.link)
                         .font(.dmCaption)
-                        .accessibilityLabel(showsFull ? "Show less of \(source.id)" : "Show the full result \(source.id)")
+                        .accessibilityLabel(showsFull ? "Show less of \(item.label)" : "Show the full result \(item.label)")
                         .accessibilityValue(showsFull ? "Expanded" : "Collapsed")
                         .accessibilityHint("Shows or hides the rest of what the service returned and the model received")
                 }
@@ -194,7 +222,13 @@ private struct ResultRow: View {
         }
     }
 
-    @ViewBuilder private var excerptText: some View {
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.dmCaption)
+            .foregroundStyle(.tertiary)
+    }
+
+    @ViewBuilder private func excerptText(_ source: ToolSource) -> some View {
         if showsFull {
             // The excerpt is already bounded to what the model received; the transcript scrolls around it.
             Text(source.excerpt)
@@ -212,11 +246,7 @@ private struct ResultRow: View {
     }
 
     /// Short results fit in the collapsed view, so there is nothing to open.
-    private var canExpand: Bool {
+    private func canExpand(_ source: ToolSource) -> Bool {
         source.excerpt.count > 320 || source.excerpt.split(separator: "\n", omittingEmptySubsequences: false).count > Self.collapsedLines
-    }
-
-    private var spokenExcerpt: String {
-        source.excerpt + (source.truncated ? " Cut to fit the room left in this chat." : "")
     }
 }

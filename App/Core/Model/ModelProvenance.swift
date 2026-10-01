@@ -38,4 +38,10 @@ public struct ModelProvenance: Equatable, Sendable {
         if usedServices { return "Remote connection: nothing was sent" }
         return nil
     }
+
+    /// For an answer that cites a service result retrieved in an earlier answer: where that result came from. It claims
+    /// no new send, because this answer made none for it. Nil when no earlier result is cited.
+    public static func earlierResultLabel(hosts: [String]) -> String? {
+        hosts.isEmpty ? nil : "Uses a result retrieved earlier from \(hosts.joined(separator: ", "))"
+    }
 }

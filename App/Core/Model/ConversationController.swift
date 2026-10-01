@@ -237,6 +237,9 @@ public final class ConversationController {
             $0.consultedCount = grounded?.consultedCount ?? 0
             $0.comparedMaterial = grounded?.comparedMaterial ?? []
             $0.toolSources = grounded?.toolSources ?? []
+            $0.retrievedSources = grounded?.retrievedSources ?? []
+            $0.retrievedToolSources = grounded?.retrievedToolSources ?? []
+            $0.earlierToolLabels = grounded?.earlierToolLabels ?? []
             if let calls = grounded?.toolCalls, !calls.isEmpty { $0.toolCalls = calls }
         }
         return text

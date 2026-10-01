@@ -36,6 +36,13 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
     public var toolSources: [ToolSource]
     /// The saved one-line-per-call summary of an answer reopened from history. A live answer derives it from `toolCalls`.
     public var toolSummary: String?
+    /// File excerpts given to the model for this answer that it does not cite. Listed as "retrieved, not cited", never as
+    /// sources. Memory only.
+    public var retrievedSources: [SourceCitation]
+    /// Service results given to the model for this answer that it does not cite. Same meaning. Memory only.
+    public var retrievedToolSources: [ToolSource]
+    /// Cited "[M#]" labels whose result an earlier answer retrieved. Memory only.
+    public var earlierToolLabels: [String]
 
     public init(
         id: UUID = UUID(),
@@ -50,8 +57,14 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
         attachments: [AttachmentSummary] = [],
         toolCalls: [ToolCallRecord] = [],
         toolSources: [ToolSource] = [],
-        toolSummary: String? = nil
+        toolSummary: String? = nil,
+        retrievedSources: [SourceCitation] = [],
+        retrievedToolSources: [ToolSource] = [],
+        earlierToolLabels: [String] = []
     ) {
+        self.retrievedSources = retrievedSources
+        self.retrievedToolSources = retrievedToolSources
+        self.earlierToolLabels = earlierToolLabels
         self.toolCalls = toolCalls
         self.toolSources = toolSources
         self.toolSummary = toolSummary
