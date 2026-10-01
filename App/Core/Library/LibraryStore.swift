@@ -270,13 +270,26 @@ public final class LibraryStore {
         let available = Set(searchableFiles.map(\.id))
         guard !available.isEmpty else { return [] }
         let candidates = searchIndex.search(query, limit: limit * 4) { available.contains($0.fileID) }
+        return verified(candidates.map(\.chunk), limit: limit)
+    }
+
+    /// The same search restricted to the one searchable file whose name matches `fileName` (see `LibraryFileScope`).
+    /// Only files already indexed from authorized sources can match; nothing else is opened. Hits are verified against
+    /// the disk like any other search. Never returns a chunk of another file.
+    public func search(query: String, fileName: String, limit: Int) -> ScopedSearchResult {
+        let scoped = LibraryFileScope.search(query: query, fileName: fileName, files: searchableFiles, index: searchIndex, limit: limit * 4)
+        guard case .chunks(let candidates) = scoped.result else { return scoped.result }
+        return .chunks(verified(candidates, limit: limit))
+    }
+
+    private func verified(_ candidates: [SourceChunk], limit: Int) -> [SourceChunk] {
         var verdicts: [String: Bool] = [:]
         var rootCache: [UUID: URL?] = [:]
         var results: [SourceChunk] = []
         for candidate in candidates {
-            let fileID = candidate.chunk.fileID
+            let fileID = candidate.fileID
             if verdicts[fileID] == nil { verdicts[fileID] = verify(fileID: fileID, rootCache: &rootCache) }
-            if verdicts[fileID] == true { results.append(candidate.chunk) }
+            if verdicts[fileID] == true { results.append(candidate) }
             if results.count >= limit { break }
         }
         return results

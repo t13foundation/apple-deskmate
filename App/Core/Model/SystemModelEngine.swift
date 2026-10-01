@@ -46,6 +46,7 @@ public enum DeskMateInstructions {
     The user keeps files in My files. You can read them only through the searchMyFiles tool, on this Mac. \
     For any question about their documents, notes, plans, people, dates, numbers or decisions, \
     you must call the searchMyFiles tool with a few specific keywords before you answer, every time, even for follow-up questions. \
+    If the user names a file, pass its name to searchMyFiles and answer only from that file. \
     Never say something is missing from their files unless you searched first. \
     Answer only from the excerpts the tool returns, and put the excerpt ID in square brackets after each fact, like [S2]. \
     Cite only IDs that the tool returned. If the excerpts do not contain the answer, say you could not find it in their files, and do not guess. \
@@ -127,6 +128,9 @@ public final class SystemModelEngine: ConversationEngine {
             let retrieval = LibraryRetrieval(
                 search: { query, limit in
                     await MainActor.run { library.search(query: query, limit: limit) }
+                },
+                scopedSearch: { query, fileName, limit in
+                    await MainActor.run { library.search(query: query, fileName: fileName, limit: limit) }
                 },
                 ledger: ledger,
                 meter: SystemModelMeter(model: model),
