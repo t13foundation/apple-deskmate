@@ -96,7 +96,7 @@ final class CompactPanelController: NSObject, NSWindowDelegate {
     /// Puts the caret in the message field.
     func focusComposer() {
         guard let panel, let field = Self.composerField(in: panel.contentView) else { return }
-        if panel.firstResponder !== field { panel.makeFirstResponder(field) } else { PanelOpenTiming.composerReady() }
+        if panel.firstResponder !== field { _ = panel.makeFirstResponder(field) } else { PanelOpenTiming.composerReady() }
     }
 
     // MARK: Window

@@ -9,7 +9,8 @@
 	     Saved conversations live in DeskMate's own Application Support folder, which needs no entitlement.
 	     Connections makes outgoing requests only to the addresses the person adds (https, or http to
 	     this Mac for development), so it needs network.client. There is no server entitlement.
-	     A later package adds the App Group for the widget, when that feature lands. -->
+	     The App Group that shares the generic widget snapshot is added by scripts/build-app.sh when
+	     a Team ID is given; without one it is left out, because an App Group needs a signing identity with a Team ID. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
