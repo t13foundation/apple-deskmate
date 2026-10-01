@@ -23,6 +23,7 @@ struct DeskMateApp: App {
     @State private var library: LibraryStore
     @State private var controller: ConversationController
     @State private var connections: ConnectionManager
+    @State private var approvals: ToolApprovalBroker
     @State private var history: ConversationHistory
     @State private var navigation = AppNavigation()
 
@@ -33,20 +34,26 @@ struct DeskMateApp: App {
         // Saved conversations live in DeskMate's own Application Support folder. Reading the list happens after launch.
         let history = ConversationHistory.standard()
         _history = State(initialValue: history)
-        let controller = ConversationController(engine: SystemModelEngine(library: library), history: history)
-        _controller = State(initialValue: controller)
-        AppDelegate.controller = controller
-
         // Reads the saved connection list. Nothing is sent over the network: every connection starts disconnected.
         let connections = ConnectionManager()
         connections.restore()
         _connections = State(initialValue: connections)
         AppDelegate.connections = connections
+
+        // The broker is the only place a tool call waits for a person; the engine can ask it, never answer it.
+        let approvals = ToolApprovalBroker()
+        _approvals = State(initialValue: approvals)
+        AppDelegate.approvals = approvals
+
+        let engine = SystemModelEngine(library: library, services: AssistantServices(connections: connections, approvals: approvals))
+        let controller = ConversationController(engine: engine, history: history)
+        _controller = State(initialValue: controller)
+        AppDelegate.controller = controller
     }
 
     var body: some Scene {
         Window("DeskMate", id: "main") {
-            RootView(controller: controller, library: library, connections: connections, history: history, navigation: navigation)
+            RootView(controller: controller, library: library, connections: connections, history: history, approvals: approvals, navigation: navigation)
                 .tint(Color.dmBrandFill)
         }
         .defaultSize(width: DS.Layout.windowDefaultWidth, height: DS.Layout.windowDefaultHeight)
@@ -83,6 +90,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static var connections: ConnectionManager?
     /// Set once by `DeskMateApp` so quitting can save the conversation on screen.
     static var controller: ConversationController?
+    /// Set once by `DeskMateApp` so quitting ends any approval that is still waiting. Nothing waiting is ever sent.
+    static var approvals: ToolApprovalBroker?
 
     /// Longest quitting waits for the conversation to be saved and connections to close. Neither may hold the app open.
     private static let shutdownGrace: Duration = .seconds(2)
@@ -100,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Saves the conversation on screen (an answer still streaming is kept as stopped) and closes open connections
     /// (which also stops in-flight requests) before quitting, for at most two seconds.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Self.approvals?.cancelAll()
         let manager = Self.connections
         let controller = Self.controller
         let hasLiveConnections = manager?.statuses.values.contains(where: { $0.isConnected || $0.isBusy }) ?? false

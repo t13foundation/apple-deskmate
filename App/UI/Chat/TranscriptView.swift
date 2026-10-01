@@ -139,6 +139,7 @@ struct AssistantMessageView: View {
             .accessibilityElement(children: .combine)
 
             CitationsView(message: message)
+            ToolActivityView(message: message)
 
             if message.status != .streaming, !message.text.isEmpty {
                 actions
@@ -154,12 +155,15 @@ struct AssistantMessageView: View {
                     .font(.dmCaption.weight(.semibold))
                     .foregroundStyle(Color.dmBrandText)
                     .accessibilityHidden(true)
-                Text(SystemModelEngine.provenance.shortLabel)
+                // "On this Mac" would be wrong beside a request that left it, so an answer that asked a service names only
+                // the model here; the remote label next to it says where data went.
+                Text(message.usedServices ? ModelProvenance.inferenceOnlyLabel : SystemModelEngine.provenance.shortLabel)
                     .font(.dmCaption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
             ProvenanceInfoButton()
+            RemoteConnectionLabel(message: message)
         }
     }
 

@@ -8,6 +8,7 @@ struct RootView: View {
     let library: LibraryStore
     let connections: ConnectionManager
     let history: ConversationHistory
+    let approvals: ToolApprovalBroker
     @Bindable var navigation: AppNavigation
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -66,6 +67,8 @@ struct RootView: View {
         }
         .environment(library)
         .environment(navigation)
+        // A connected-service call waits here for a person's answer, whichever section is open.
+        .toolApprovalSheet(broker: approvals)
         .frame(minWidth: DS.Layout.windowMinWidth, minHeight: DS.Layout.windowMinHeight)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             // A narrow window starts with the sidebar hidden. Only crossing the threshold changes it,

@@ -60,6 +60,11 @@ enum HeadlessCommand {
               --follow-up "<q>"          ask another question in the same chat (repeatable)
               --show-excerpts            also print the cited excerpts (never other document text)
               --show-searches            print each search the model ran and which excerpts it received
+            connected service options (in memory; every tool call asks "Allow? [y/N]" and reads your answer from stdin):
+              --connection <address>     connect this Streamable HTTP MCP endpoint (HTTPS, or http on 127.0.0.1)
+              --enable-tool <name>       turn this tool on (repeatable; none are on by default)
+              DESKMATE_MCP_TOKEN         environment variable with the bearer token, if the endpoint needs one
+              No answer or end of input denies the call. There is no option that approves for you.
             Without arguments DeskMate opens its window.
             """)
             return problem == nil ? 0 : 64
