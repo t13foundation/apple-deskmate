@@ -26,10 +26,13 @@ public struct TurnUpdate: Equatable, Sendable {
     public var text: String
     /// What DeskMate is doing while no text arrives, e.g. "Searching your files…". Nil when just writing.
     public var activity: String?
+    /// Every connected-service call so far in this turn, when this update reports a change to them. Nil otherwise.
+    public var toolCalls: [ToolCallRecord]?
 
-    public init(text: String, activity: String? = nil) {
+    public init(text: String, activity: String? = nil, toolCalls: [ToolCallRecord]? = nil) {
         self.text = text
         self.activity = activity
+        self.toolCalls = toolCalls
     }
 }
 

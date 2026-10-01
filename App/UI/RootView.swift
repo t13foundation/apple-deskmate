@@ -3,11 +3,12 @@ import DeskMateCore
 import SwiftUI
 
 /// Main window: a restrained sidebar and the conversation, My files or Connections.
-/// Later packages add Settings to the sidebar.
 struct RootView: View {
     let controller: ConversationController
     let library: LibraryStore
     let connections: ConnectionManager
+    let history: ConversationHistory
+    let approvals: ToolApprovalBroker
     @Bindable var navigation: AppNavigation
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -15,7 +16,7 @@ struct RootView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(controller: controller, navigation: navigation)
+            SidebarView(controller: controller, history: history, navigation: navigation)
                 .navigationSplitViewColumnWidth(
                     min: DS.Layout.sidebarMinWidth,
                     ideal: DS.Layout.sidebarIdealWidth,
@@ -24,7 +25,7 @@ struct RootView: View {
         } detail: {
             switch navigation.section {
             case .chat:
-                ChatView(controller: controller)
+                ChatView(controller: controller, history: history)
                     .inspector(isPresented: viewerIsPresented) {
                         SourceViewer(navigation: navigation)
                             .inspectorColumnWidth(
@@ -66,6 +67,8 @@ struct RootView: View {
         }
         .environment(library)
         .environment(navigation)
+        // A connected-service call waits here for a person's answer, whichever section is open.
+        .toolApprovalSheet(broker: approvals)
         .frame(minWidth: DS.Layout.windowMinWidth, minHeight: DS.Layout.windowMinHeight)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             // A narrow window starts with the sidebar hidden. Only crossing the threshold changes it,
@@ -83,8 +86,13 @@ struct RootView: View {
         .onChange(of: controller.hasConversation) { _, hasConversation in
             if !hasConversation { navigation.closeViewer() }
         }
+        .onChange(of: controller.conversationID) {
+            // An excerpt belongs to the conversation it was cited in.
+            navigation.closeViewer()
+        }
         .task { controller.prewarmIfReady() }
         .task { await library.load() }
+        .task { await history.load() }
     }
 
     private var viewerIsPresented: Binding<Bool> {
@@ -101,17 +109,61 @@ struct RootView: View {
     }
 }
 
-/// Sidebar rows: New chat, the current conversation (once there is one), My files and Connections.
-/// Conversations are not stored yet, so there is no Recent list to show.
+/// Shown in Recent when a conversation could not be deleted from this Mac. The row stays listed; Try again removes it
+/// once it can. Names no path and no conversation text.
+private struct DeletionProblemRow: View {
+    let problem: DeletionProblem
+    let controller: ConversationController
+    let history: ConversationHistory
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.s) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Spacing.s) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(Color.dmWarning)
+                    .accessibilityHidden(true)
+                Text(problem.message)
+                    .font(.dmCaption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: DS.Spacing.m) {
+                Button("Try again") {
+                    Task {
+                        if await controller.retryDeletion() { Announcer.post("Conversation deleted") }
+                    }
+                }
+                .accessibilityHint("Tries to delete the conversation again")
+                Button("Dismiss") { history.dismissDeletionProblem() }
+                    .accessibilityHint("Hides this message. The conversation stays in Recent")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+        }
+        .padding(.vertical, DS.Spacing.xs)
+        .accessibilityElement(children: .contain)
+        .onAppear { Announcer.post(problem.message) }
+    }
+}
+
+/// Sidebar rows: New chat, Recent conversations, My files, Connections, and Settings.
 struct SidebarView: View {
     let controller: ConversationController
+    let history: ConversationHistory
     @Bindable var navigation: AppNavigation
+
+    @Environment(\.openSettings) private var openSettings
+    @State private var pendingDeletion: ConversationSummary?
 
     private enum Item: Hashable {
         case newChat
-        case current
+        case conversation(UUID)
         case files
         case connections
+    }
+
+    /// The conversation on screen is listed even in the moment before its first save reaches the list.
+    private var showsCurrentSeparately: Bool {
+        controller.hasConversation && !history.summaries.contains { $0.id == controller.conversationID }
     }
 
     var body: some View {
@@ -121,11 +173,21 @@ struct SidebarView: View {
                     .tag(Item.newChat)
                     .accessibilityLabel("New chat")
                     .accessibilityHint("Clears the conversation and starts fresh")
-                if controller.hasConversation {
-                    Label(controller.conversationTitle, systemImage: "bubble.left")
-                        .lineLimit(1)
-                        .tag(Item.current)
-                        .accessibilityLabel("Current conversation: \(controller.conversationTitle)")
+            }
+            if showsCurrentSeparately || !history.summaries.isEmpty {
+                Section("Recent") {
+                    if let problem = history.deletionProblem {
+                        DeletionProblemRow(problem: problem, controller: controller, history: history)
+                    }
+                    if showsCurrentSeparately {
+                        Label(controller.conversationTitle, systemImage: "bubble.left")
+                            .lineLimit(1)
+                            .tag(Item.conversation(controller.conversationID))
+                            .accessibilityLabel("Current conversation: \(controller.conversationTitle)")
+                    }
+                    ForEach(history.summaries) { summary in
+                        recentRow(summary)
+                    }
                 }
             }
             Section("Library") {
@@ -142,6 +204,51 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Also reachable with ⌘, from the app menu.
+            Button {
+                openSettings()
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, DS.Spacing.m)
+            .padding(.vertical, DS.Spacing.s)
+            .help("What DeskMate saves, and how to clear it (⌘,)")
+            .accessibilityLabel("Settings")
+            .accessibilityHint("Opens the Settings window")
+        }
+        .confirmationDialog(
+            "Delete this conversation?",
+            isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingDeletion
+        ) { summary in
+            Button("Delete conversation", role: .destructive) {
+                let id = summary.id
+                // Announced only once the file is really gone. A failure keeps the row and shows the notice instead.
+                Task {
+                    if await controller.deleteConversation(id) { Announcer.post("Conversation deleted") }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { summary in
+            Text("“\(summary.title)” and its results will be removed from this Mac. Your files are not touched.")
+        }
+    }
+
+    private func recentRow(_ summary: ConversationSummary) -> some View {
+        Label(summary.title, systemImage: "bubble.left")
+            .lineLimit(1)
+            .help(summary.title)
+            .tag(Item.conversation(summary.id))
+            .accessibilityLabel(summary.title)
+            .accessibilityHint("Opens this conversation. Last used \(summary.updatedAt.formatted(.relative(presentation: .named)))")
+            .contextMenu {
+                Button("Delete…", role: .destructive) { pendingDeletion = summary }
+            }
     }
 
     /// The action row: a brand-text icon and a medium-weight label, so it reads as an action rather than a destination.
@@ -165,7 +272,7 @@ struct SidebarView: View {
                 switch navigation.section {
                 case .files: .files
                 case .connections: .connections
-                case .chat: controller.hasConversation ? .current : .newChat
+                case .chat: controller.hasConversation ? .conversation(controller.conversationID) : .newChat
                 }
             },
             set: { item in
@@ -173,8 +280,11 @@ struct SidebarView: View {
                 case .newChat:
                     if controller.hasConversation { controller.newChat() }
                     navigation.section = .chat
-                case .current:
+                case .conversation(let id):
                     navigation.section = .chat
+                    if id != controller.conversationID || !controller.hasConversation {
+                        Task { await controller.open(id) }
+                    }
                 case .files:
                     navigation.section = .files
                 case .connections:

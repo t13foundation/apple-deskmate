@@ -23,28 +23,47 @@ struct DeskMateApp: App {
     @State private var library: LibraryStore
     @State private var controller: ConversationController
     @State private var connections: ConnectionManager
+    @State private var approvals: ToolApprovalBroker
+    @State private var history: ConversationHistory
     @State private var navigation = AppNavigation()
 
     init() {
         WindowLayoutMigration.run()
         let library = LibraryStore()
         _library = State(initialValue: library)
-        _controller = State(initialValue: ConversationController(engine: SystemModelEngine(library: library)))
-
+        // Saved conversations live in DeskMate's own Application Support folder. Reading the list happens after launch.
+        let history = ConversationHistory.standard()
+        _history = State(initialValue: history)
         // Reads the saved connection list. Nothing is sent over the network: every connection starts disconnected.
         let connections = ConnectionManager()
         connections.restore()
         _connections = State(initialValue: connections)
         AppDelegate.connections = connections
+
+        // The broker is the only place a tool call waits for a person; the engine can ask it, never answer it.
+        let approvals = ToolApprovalBroker()
+        _approvals = State(initialValue: approvals)
+        AppDelegate.approvals = approvals
+
+        let engine = SystemModelEngine(library: library, services: AssistantServices(connections: connections, approvals: approvals))
+        let controller = ConversationController(engine: engine, history: history)
+        _controller = State(initialValue: controller)
+        AppDelegate.controller = controller
     }
 
     var body: some Scene {
         Window("DeskMate", id: "main") {
-            RootView(controller: controller, library: library, connections: connections, navigation: navigation)
+            RootView(controller: controller, library: library, connections: connections, history: history, approvals: approvals, navigation: navigation)
                 .tint(Color.dmBrandFill)
         }
         .defaultSize(width: DS.Layout.windowDefaultWidth, height: DS.Layout.windowDefaultHeight)
         .commands { ConversationCommands(controller: controller, navigation: navigation) }
+
+        // ⌘, opens it. It explains what is saved and offers the two separate clear actions.
+        Settings {
+            SettingsView(history: history, controller: controller, library: library)
+                .tint(Color.dmBrandFill)
+        }
     }
 }
 
@@ -69,8 +88,12 @@ enum WindowLayoutMigration {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set once by `DeskMateApp` so quitting can close live connections.
     static var connections: ConnectionManager?
+    /// Set once by `DeskMateApp` so quitting can save the conversation on screen.
+    static var controller: ConversationController?
+    /// Set once by `DeskMateApp` so quitting ends any approval that is still waiting. Nothing waiting is ever sent.
+    static var approvals: ToolApprovalBroker?
 
-    /// Longest quitting waits for connections to close. A service that does not answer must not hold the app open.
+    /// Longest quitting waits for the conversation to be saved and connections to close. Neither may hold the app open.
     private static let shutdownGrace: Duration = .seconds(2)
 
     private var awaitingShutdown = false
@@ -83,14 +106,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// Closes open connections (which also stops in-flight requests) before quitting, for at most two seconds.
+    /// Saves the conversation on screen (an answer still streaming is kept as stopped) and closes open connections
+    /// (which also stops in-flight requests) before quitting, for at most two seconds.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let manager = Self.connections,
-            manager.statuses.values.contains(where: { $0.isConnected || $0.isBusy })
-        else { return .terminateNow }
+        Self.approvals?.cancelAll()
+        let manager = Self.connections
+        let controller = Self.controller
+        let hasLiveConnections = manager?.statuses.values.contains(where: { $0.isConnected || $0.isBusy }) ?? false
+        guard hasLiveConnections || controller?.hasConversation == true else { return .terminateNow }
         awaitingShutdown = true
         Task { @MainActor in
-            await manager.disconnectAll()
+            await controller?.flushForQuit()
+            if hasLiveConnections { await manager?.disconnectAll() }
             self.finishShutdown()
         }
         Task { @MainActor in

@@ -12,10 +12,17 @@ struct HeadlessFilesRequest {
     var compare: (URL, URL)?
     var showExcerpts = false
     var showSearches = false
+    /// A Streamable HTTP MCP endpoint to connect for this run (in memory, nothing saved). The token, if any, comes from
+    /// the environment variable `DESKMATE_MCP_TOKEN`, never from the command line.
+    var connection: String?
+    /// Tools to turn on for that connection. None are on by default.
+    var enabledTools: [String] = []
 
     /// Returns nil when no file option is present, so plain `--ask "<question>"` keeps its simple path.
     static func parse(_ arguments: [String]) -> Result<HeadlessFilesRequest, UsageProblem>? {
-        let fileOptions: Set<String> = ["--library", "--attach", "--follow-up", "--compare", "--show-excerpts", "--show-searches"]
+        let fileOptions: Set<String> = [
+            "--library", "--attach", "--follow-up", "--compare", "--show-excerpts", "--show-searches", "--connection", "--enable-tool"
+        ]
         guard arguments.contains(where: { fileOptions.contains($0) }) else { return nil }
 
         var request = HeadlessFilesRequest()
@@ -46,6 +53,12 @@ struct HeadlessFilesRequest {
                 request.showExcerpts = true
             case "--show-searches":
                 request.showSearches = true
+            case "--connection":
+                guard let value = next(argument) else { return .failure(UsageProblem("--connection needs an address, e.g. http://127.0.0.1:8765/mcp")) }
+                request.connection = value
+            case "--enable-tool":
+                guard let value = next(argument) else { return .failure(UsageProblem("--enable-tool needs a tool name")) }
+                request.enabledTools.append(value)
             default:
                 words.append(argument)
             }
@@ -59,6 +72,9 @@ struct HeadlessFilesRequest {
         }
         if request.compare != nil, !request.attachments.isEmpty {
             return .failure(UsageProblem("--compare cannot be combined with --attach"))
+        }
+        if request.connection == nil, !request.enabledTools.isEmpty {
+            return .failure(UsageProblem("--enable-tool needs --connection <address>"))
         }
         return .success(request)
     }
@@ -84,7 +100,41 @@ enum HeadlessFilesAsk {
             }
         }
 
-        let engine = SystemModelEngine(library: store)
+        // Connected services: in-memory stores only, the token from the environment, every tool off unless named.
+        var services: AssistantServices?
+        var approval: TerminalApproval?
+        if let address = request.connection {
+            let manager = ConnectionManager(configStore: InMemoryConnectionConfigStore(), secretStore: InMemorySecretStore())
+            let environmentToken = ProcessInfo.processInfo.environment["DESKMATE_MCP_TOKEN"]
+            let token = environmentToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch manager.addConnection(name: "Project Lumen", address: address, token: token?.isEmpty == false ? token : nil) {
+            case .failure(let problem):
+                print("connection: \(problem.message)")
+                return 1
+            case .success(let connection):
+                await manager.connect(connection.id)
+                guard manager.status(of: connection.id).isConnected else {
+                    if case .failed(let failure) = manager.status(of: connection.id) {
+                        print("connection: could not connect to \(connection.endpoint.displayHost): \(failure.summary)")
+                    } else {
+                        print("connection: could not connect to \(connection.endpoint.displayHost)")
+                    }
+                    return 1
+                }
+                let listed = manager.tools(of: connection.id).map(\.name).joined(separator: ", ")
+                print("connection: connected to \(connection.endpoint.displayHost); tools offered: \(listed.isEmpty ? "none" : listed)")
+                for name in request.enabledTools {
+                    let outcome = manager.setTool(name, enabled: true, in: connection.id)
+                    print("connection: tool \(name): \(outcome.message ?? "enabled")")
+                }
+                print("connection: \(manager.availableTools.count) tool(s) enabled; every call will ask you first")
+                let broker = ToolApprovalBroker()
+                approval = TerminalApproval(broker: broker)
+                services = AssistantServices(connections: manager, approvals: broker)
+            }
+        }
+
+        let engine = SystemModelEngine(library: store, services: services)
         let snapshot = engine.readiness()
         guard snapshot.readiness.isReady else {
             print(ModelDiagnostics.report(snapshot: snapshot))
@@ -137,8 +187,28 @@ enum HeadlessFilesAsk {
             print("--- answer ---")
             print(answer.text)
             printSources(answer, showExcerpts: request.showExcerpts)
+            printToolActivity(answer, showExcerpts: request.showExcerpts)
+        }
+        if let approval, !approval.answers.isEmpty {
+            print("\napprovals typed this run: " + approval.answers.map { "\($0.tool)=\($0.allowed ? "allowed" : "denied")" }.joined(separator: ", "))
         }
         return status
+    }
+
+    private static func printToolActivity(_ answer: ChatMessage, showExcerpts: Bool) {
+        guard answer.usedServices else { return }
+        print("--- tool activity ---")
+        for call in answer.toolCalls {
+            print(call.summaryLine)
+            for argument in call.arguments { print("    \(argument.name) = \(argument.value)") }
+            if let detail = call.detail { print("    \(detail)") }
+        }
+        for source in answer.toolSources {
+            print("[\(source.id)] \(source.title)\(source.truncated ? " (result cut to fit)" : "")")
+            if showExcerpts { print("    \"\(source.excerpt.replacingOccurrences(of: "\n", with: " "))\"") }
+        }
+        let label = ModelProvenance.remoteLabel(reach: answer.remoteReach,usedServices: answer.usedServices)
+        print("--- \(ModelProvenance.inferenceOnlyLabel) · \(label ?? "") ---")
     }
 
     @MainActor

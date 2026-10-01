@@ -3,14 +3,16 @@
 <plist version="1.0">
 <dict>
 	<!-- The app stays sandboxed. Foundation Models needs no entitlement.
-	     My files reads only what the person picks in the open panel, read-only, and keeps
-	     access across launches with app-scoped security bookmarks.
+	     My files reads only what the person picks in the open panel, and keeps access across launches
+	     with app-scoped security bookmarks. DeskMate never writes to a file the person picked for reading:
+	     read-write exists only so "Save as Markdown" can write the one file the person names in the save panel.
+	     Saved conversations live in DeskMate's own Application Support folder, which needs no entitlement.
 	     Connections makes outgoing requests only to the addresses the person adds (https, or http to
 	     this Mac for development), so it needs network.client. There is no server entitlement.
 	     A later package adds the App Group for the widget, when that feature lands. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
-	<key>com.apple.security.files.user-selected.read-only</key>
+	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>

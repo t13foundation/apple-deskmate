@@ -2,7 +2,8 @@ import Foundation
 import Observation
 
 /// Owns the current conversation: visible messages, the composer draft, streaming, cancellation and
-/// the model context. One instance backs one conversation window; persistence is added by a later package.
+/// the model context. One instance backs one conversation window. With a `ConversationHistory` it also saves the
+/// conversation (see `ConversationController+Conversations`).
 ///
 /// Rules this type enforces:
 /// - A question is never lost: it stays in the transcript (or the composer) after Stop or any failure.
@@ -16,38 +17,62 @@ public final class ConversationController {
         /// Measuring the context budget; the message has not been sent yet.
         case preparing
         case generating
+        /// Making a brief or a task list from the conversation. Nothing is added to the chat.
+        case creatingResult
     }
 
-    public private(set) var messages: [ChatMessage] = []
+    public internal(set) var messages: [ChatMessage] = []
     /// Composer text. Lives here so no failure or state change can discard it.
     public var draft: String = ""
-    public private(set) var phase: Phase = .idle
-    public private(set) var failure: ChatFailure?
+    public internal(set) var phase: Phase = .idle
+    public internal(set) var failure: ChatFailure?
     public private(set) var snapshot: ModelReadinessSnapshot
     /// Increments whenever the composer should take keyboard focus.
-    public private(set) var focusRequest = 0
+    public internal(set) var focusRequest = 0
     /// Increments when the person tries to send while the model is unavailable, so the UI can draw attention.
-    public private(set) var readinessNudge = 0
+    public internal(set) var readinessNudge = 0
 
     /// Files attached to the question being written. Cleared when the question is sent.
-    public private(set) var attachments: [Attachment] = []
+    public internal(set) var attachments: [Attachment] = []
     /// True while the person is preparing a two-document comparison.
-    public private(set) var isComparing = false
+    public internal(set) var isComparing = false
     /// Why a file was not attached, in plain language.
-    public private(set) var attachmentNotices: [String] = []
+    public internal(set) var attachmentNotices: [String] = []
     /// What DeskMate is doing while the answer has not started, e.g. "Searching your files…".
-    public private(set) var activity: String?
+    public internal(set) var activity: String?
     public private(set) var isLoadingAttachments = false
 
-    @ObservationIgnored private let engine: any ConversationEngine
-    @ObservationIgnored private var generation: Task<Void, Never>?
-    @ObservationIgnored private var turns: [ConversationTurn] = []
-    @ObservationIgnored private var epoch = UUID()
-    /// The request behind each question, so Retry and Edit restore its attached files.
-    @ObservationIgnored private var requests: [UUID: TurnRequest] = [:]
+    // Saved conversation and results (used by ConversationController+Conversations).
 
-    public init(engine: any ConversationEngine) {
+    /// The id of the conversation on screen. A new one is made by New chat; it is saved with its first message.
+    public internal(set) var conversationID = UUID()
+    /// Briefs and task lists made in this conversation, with the person's edits.
+    public internal(set) var results: [StoredResult] = []
+    public internal(set) var resultFailure: ChatFailure?
+    /// The kind of result being made, while `phase` is `.creatingResult`.
+    public internal(set) var resultInProgress: ResultKind?
+    /// The result open in the result sheet.
+    public var presentedResultID: UUID?
+    /// Finished turns of a reopened conversation that are not in the model's memory (older than what fits).
+    public internal(set) var omittedFromMemory = 0
+    /// The question that starts the part of a reopened conversation the model remembers. Nil when it remembers all of it, or (with `omittedFromMemory` above 0) when it remembers none of it.
+    public internal(set) var memoryBoundaryID: UUID?
+
+    @ObservationIgnored let engine: any ConversationEngine
+    @ObservationIgnored var generation: Task<Void, Never>?
+    /// The finished turns the model remembers. After a reopen this is only the most recent ones that fit.
+    @ObservationIgnored var turns: [ConversationTurn] = []
+    @ObservationIgnored var epoch = UUID()
+    /// The request behind each question, so Retry and Edit restore its attached files.
+    @ObservationIgnored var requests: [UUID: TurnRequest] = [:]
+    @ObservationIgnored let history: ConversationHistory?
+    @ObservationIgnored var createdAt = Date()
+    @ObservationIgnored var isSaved = false
+    @ObservationIgnored var restoring: Task<Void, Never>?
+
+    public init(engine: any ConversationEngine, history: ConversationHistory? = nil) {
         self.engine = engine
+        self.history = history
         self.snapshot = engine.readiness()
     }
 
@@ -129,6 +154,9 @@ public final class ConversationController {
     }
 
     private func runTurn(_ request: TurnRequest, reusing existingQuestionID: UUID?, epoch: UUID) async {
+        // A reopened conversation first gives the model its memory back.
+        await restoring?.value
+        guard epoch == self.epoch else { return }
         let preparation = await engine.prepareTurn(request, history: turns)
         guard epoch == self.epoch else { return }
         if Task.isCancelled {
@@ -156,6 +184,8 @@ public final class ConversationController {
         let answer = ChatMessage(role: .assistant, text: "", status: .streaming)
         messages.append(answer)
         phase = .generating
+        // The question is saved before the answer starts, so quitting mid-answer never loses it.
+        persist()
 
         var latest = ""
         do {
@@ -163,7 +193,10 @@ public final class ConversationController {
                 guard epoch == self.epoch else { return }
                 latest = turnUpdate.text
                 activity = turnUpdate.activity
-                update(answer.id) { $0.text = turnUpdate.text }
+                update(answer.id) {
+                    $0.text = turnUpdate.text
+                    if let calls = turnUpdate.toolCalls { $0.toolCalls = calls }
+                }
             }
         } catch {
             guard epoch == self.epoch else { return }
@@ -184,6 +217,7 @@ public final class ConversationController {
             turns.append(ConversationTurn(prompt: request.question, response: text))
             activity = nil
             phase = .idle
+            persist()
         }
     }
 
@@ -202,6 +236,11 @@ public final class ConversationController {
             $0.removedCitations = grounded?.removedCitations ?? []
             $0.consultedCount = grounded?.consultedCount ?? 0
             $0.comparedMaterial = grounded?.comparedMaterial ?? []
+            $0.toolSources = grounded?.toolSources ?? []
+            $0.retrievedSources = grounded?.retrievedSources ?? []
+            $0.retrievedToolSources = grounded?.retrievedToolSources ?? []
+            $0.earlierToolLabels = grounded?.earlierToolLabels ?? []
+            if let calls = grounded?.toolCalls, !calls.isEmpty { $0.toolCalls = calls }
         }
         return text
     }
@@ -212,6 +251,7 @@ public final class ConversationController {
         activity = nil
         phase = .idle
         focusRequest += 1
+        persist()
     }
 
     private func finishFailed(_ id: UUID, partial: String, error: any Error) {
@@ -220,9 +260,10 @@ public final class ConversationController {
         engine.reset(history: turns)
         activity = nil
         phase = .idle
+        persist()
     }
 
-    private func update(_ id: UUID, _ change: (inout ChatMessage) -> Void) {
+    func update(_ id: UUID, _ change: (inout ChatMessage) -> Void) {
         guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
         change(&messages[index])
     }
@@ -232,6 +273,8 @@ public final class ConversationController {
     /// Stops generation. The question stays, the partial answer is kept and marked as stopped.
     public func cancel() {
         guard isBusy else { return }
+        // First, so an approval that is waiting ends as stopped and a request in flight is abandoned.
+        engine.stopToolActivity()
         generation?.cancel()
     }
 
@@ -240,6 +283,12 @@ public final class ConversationController {
     /// Clears the visible conversation and the model context.
     /// With `keepingQuestion`, the question that did not fit (or failed) is moved into the new composer.
     public func newChat(keepingQuestion: Bool = false) {
+        settleForDeparture()
+        resetConversation(keepingQuestion: keepingQuestion)
+    }
+
+    /// The reset itself. Saves nothing: callers that leave a conversation behind settle it first.
+    func resetConversation(keepingQuestion: Bool = false) {
         var carried = ""
         var carriedRequest: TurnRequest?
         if keepingQuestion {
@@ -252,6 +301,8 @@ public final class ConversationController {
         }
         generation?.cancel()
         generation = nil
+        restoring?.cancel()
+        restoring = nil
         epoch = UUID()
         messages = []
         turns = []
@@ -259,6 +310,15 @@ public final class ConversationController {
         failure = nil
         activity = nil
         phase = .idle
+        conversationID = UUID()
+        createdAt = Date()
+        isSaved = false
+        results = []
+        resultFailure = nil
+        resultInProgress = nil
+        presentedResultID = nil
+        omittedFromMemory = 0
+        memoryBoundaryID = nil
         draft = carried
         if let carriedRequest {
             attachments = carriedRequest.attachments
@@ -285,6 +345,7 @@ public final class ConversationController {
         }
         failure = nil
         focusRequest += 1
+        persist()
     }
 
     public func dismissFailure() {

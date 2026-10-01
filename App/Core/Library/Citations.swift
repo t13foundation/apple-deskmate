@@ -52,24 +52,73 @@ public struct GroundedAnswer: Equatable, Sendable {
     /// For a document comparison: every excerpt the extraction stages read, in reading order. This is the material the
     /// answer was built from, not a per-fact citation, so it is kept apart from `sources`.
     public var comparedMaterial: [SourceCitation]
+    /// Cited connected-service results ("[M1]") that really were given to the model, in order of first mention.
+    /// Memory only; see `ToolSource`.
+    public var toolSources: [ToolSource]
+    /// Every connected-service call the model made for this answer (allowed, denied, refused or failed), set by the engine.
+    public var toolCalls: [ToolCallRecord]
+    /// File excerpts given to the model for this answer that the answer does not cite (comparison material excluded, it
+    /// has its own list). Listed as "retrieved, not cited": they back no claim in the answer. Memory only.
+    public var retrievedSources: [SourceCitation]
+    /// Service results given to the model for this answer that the answer does not cite. Same meaning. Memory only.
+    public var retrievedToolSources: [ToolSource]
+    /// Cited "[M#]" labels whose result was retrieved in an earlier answer of this conversation, not for this one.
+    public var earlierToolLabels: [String]
 
-    public init(text: String, sources: [SourceCitation] = [], removedCitations: [String] = [], consultedCount: Int = 0, comparedMaterial: [SourceCitation] = []) {
+    public init(
+        text: String,
+        sources: [SourceCitation] = [],
+        removedCitations: [String] = [],
+        consultedCount: Int = 0,
+        comparedMaterial: [SourceCitation] = [],
+        toolSources: [ToolSource] = [],
+        toolCalls: [ToolCallRecord] = [],
+        retrievedSources: [SourceCitation] = [],
+        retrievedToolSources: [ToolSource] = [],
+        earlierToolLabels: [String] = []
+    ) {
+        self.retrievedSources = retrievedSources
+        self.retrievedToolSources = retrievedToolSources
+        self.earlierToolLabels = earlierToolLabels
+        self.toolCalls = toolCalls
         self.text = text
         self.sources = sources
         self.removedCitations = removedCitations
         self.consultedCount = consultedCount
         self.comparedMaterial = comparedMaterial
+        self.toolSources = toolSources
     }
 }
 
 public enum CitationValidator {
-    // "[S3]" or "[S1, S2]". Nothing else counts as a citation.
-    private static let pattern = try! NSRegularExpression(pattern: #"\[\s*S\d+(?:\s*[,;]\s*S\d+)*\s*\]"#)
-    private static let identifier = try! NSRegularExpression(pattern: #"S\d+"#)
+    // "[S3]", "[M1]" or "[S1, M2]". Nothing else counts as a citation. S labels are file excerpts, M labels are results
+    // that a connected service returned.
+    private static let pattern = try! NSRegularExpression(pattern: #"\[\s*[SM]\d+(?:\s*[,;]\s*[SM]\d+)*\s*\]"#)
+    private static let identifier = try! NSRegularExpression(pattern: #"[SM]\d+"#)
+
+    /// The "M" labels cited in `text`, in order of first mention and without repeats. For text that already passed
+    /// `ground`, so every label in it was really given to the model.
+    public static func toolLabels(in text: String) -> [String] {
+        let nsText = text as NSString
+        var labels: [String] = []
+        for match in pattern.matches(in: text, range: NSRange(location: 0, length: nsText.length)) {
+            let body = nsText.substring(with: match.range) as NSString
+            for id in identifier.matches(in: body as String, range: NSRange(location: 0, length: body.length)) {
+                let label = body.substring(with: id.range)
+                if label.hasPrefix("M"), !labels.contains(label) { labels.append(label) }
+            }
+        }
+        return labels
+    }
 
     /// Keeps only citations whose ID was really given to the model. Unknown IDs are removed from the text
     /// and reported; they are never turned into sources.
-    public static func ground(_ text: String, given: [String: SourceCitation], consulted: Int) -> GroundedAnswer {
+    public static func ground(
+        _ text: String,
+        given: [String: SourceCitation],
+        givenTools: [String: ToolSource] = [:],
+        consulted: Int
+    ) -> GroundedAnswer {
         let nsText = text as NSString
         let matches = pattern.matches(in: text, range: NSRange(location: 0, length: nsText.length))
 
@@ -85,8 +134,9 @@ public enum CitationValidator {
             let body = nsText.substring(with: match.range)
             let ids = identifier.matches(in: body, range: NSRange(location: 0, length: (body as NSString).length))
                 .map { (body as NSString).substring(with: $0.range) }
-            let valid = ids.filter { given[$0] != nil }
-            for id in ids where given[id] == nil && !removed.contains(id) { removed.append(id) }
+            func isGiven(_ id: String) -> Bool { given[id] != nil || givenTools[id] != nil }
+            let valid = ids.filter(isGiven)
+            for id in ids where !isGiven(id) && !removed.contains(id) { removed.append(id) }
             for id in valid where !cited.contains(id) { cited.append(id) }
 
             if valid.count == ids.count {
@@ -104,7 +154,8 @@ public enum CitationValidator {
             text: output,
             sources: cited.compactMap { given[$0] },
             removedCitations: removed,
-            consultedCount: consulted
+            consultedCount: consulted,
+            toolSources: cited.compactMap { givenTools[$0] }
         )
     }
 }
@@ -126,8 +177,13 @@ public final class SourceLedger: Sendable {
         var nextNumber = 1
         var labelByChunk: [String: String] = [:]
         var given: [String: SourceCitation] = [:]
+        var nextToolNumber = 1
+        var givenTools: [String: ToolSource] = [:]
         var consultedThisTurn = 0
         var comparedThisTurn: [SourceCitation] = []
+        /// Labels of the file excerpts and service results handed to the model in the current turn, in order.
+        var givenLabelsThisTurn: [String] = []
+        var toolLabelsThisTurn: [String] = []
         var searchesThisTurn = 0
         var traces: [SearchTrace] = []
     }
@@ -151,6 +207,8 @@ public final class SourceLedger: Sendable {
         state.withLock {
             $0.consultedThisTurn = 0
             $0.comparedThisTurn = []
+            $0.givenLabelsThisTurn = []
+            $0.toolLabelsThisTurn = []
             $0.searchesThisTurn = 0
             $0.traces = []
         }
@@ -169,6 +227,7 @@ public final class SourceLedger: Sendable {
         state.withLock {
             $0.given[citation.id] = citation
             $0.consultedThisTurn += 1
+            if !$0.givenLabelsThisTurn.contains(citation.id) { $0.givenLabelsThisTurn.append(citation.id) }
         }
     }
 
@@ -197,10 +256,50 @@ public final class SourceLedger: Sendable {
         state.withLock { Set($0.given.keys) }
     }
 
+    /// Records a result a connected service returned, at the moment it is handed to the model, under the next "M" label.
+    /// Only recorded results can ever be cited as "[M#]". The label is stable for the whole conversation.
+    public func recordToolResult(
+        connectionName: String,
+        host: String,
+        toolName: String,
+        arguments: [ToolCallArgument],
+        excerpt: String,
+        truncated: Bool
+    ) -> ToolSource {
+        state.withLock { state in
+            let source = ToolSource(
+                id: "M\(state.nextToolNumber)",
+                connectionName: connectionName,
+                host: host,
+                toolName: toolName,
+                arguments: arguments,
+                excerpt: excerpt,
+                truncated: truncated
+            )
+            state.nextToolNumber += 1
+            state.givenTools[source.id] = source
+            state.toolLabelsThisTurn.append(source.id)
+            return source
+        }
+    }
+
+    public var givenToolLabels: Set<String> {
+        state.withLock { Set($0.givenTools.keys) }
+    }
+
     public func ground(_ text: String) -> GroundedAnswer {
-        let snapshot = state.withLock { ($0.given, $0.consultedThisTurn, $0.comparedThisTurn) }
-        var grounded = CitationValidator.ground(text, given: snapshot.0, consulted: snapshot.1)
-        grounded.comparedMaterial = snapshot.2
+        let snapshot = state.withLock { ($0.given, $0.givenTools, $0.consultedThisTurn, $0.comparedThisTurn, $0.givenLabelsThisTurn, $0.toolLabelsThisTurn) }
+        var grounded = CitationValidator.ground(text, given: snapshot.0, givenTools: snapshot.1, consulted: snapshot.2)
+        grounded.comparedMaterial = snapshot.3
+
+        // What the model was given in this turn but the answer does not cite. Never a citation: it backs no claim.
+        let citedFiles = Set(grounded.sources.map(\.id))
+        let compared = Set(snapshot.3.map(\.id))
+        grounded.retrievedSources = snapshot.4.filter { !citedFiles.contains($0) && !compared.contains($0) }.compactMap { snapshot.0[$0] }
+        let citedTools = Set(grounded.toolSources.map(\.id))
+        grounded.retrievedToolSources = snapshot.5.filter { !citedTools.contains($0) }.compactMap { snapshot.1[$0] }
+        // A cited result that this turn did not retrieve came from an earlier answer in the conversation.
+        grounded.earlierToolLabels = grounded.toolSources.map(\.id).filter { !snapshot.5.contains($0) }
         return grounded
     }
 
@@ -209,8 +308,11 @@ public final class SourceLedger: Sendable {
     public func dropGiven() {
         state.withLock {
             $0.given = [:]
+            $0.givenTools = [:]
             $0.consultedThisTurn = 0
             $0.comparedThisTurn = []
+            $0.givenLabelsThisTurn = []
+            $0.toolLabelsThisTurn = []
         }
     }
 

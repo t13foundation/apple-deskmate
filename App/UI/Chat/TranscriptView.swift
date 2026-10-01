@@ -17,8 +17,20 @@ struct TranscriptView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DS.Spacing.l) {
                     ForEach(controller.messages) { message in
+                        if message.id == controller.memoryBoundaryID {
+                            MemoryNote()
+                        }
                         MessageView(message: message, isLast: message.id == controller.messages.last?.id, controller: controller)
                             .id(message.id)
+                    }
+                    if controller.omittedFromMemory > 0, controller.memoryBoundaryID == nil {
+                        MemoryNote()
+                    }
+                    if controller.phase == .creatingResult, let kind = controller.resultInProgress {
+                        WorkingIndicator(label: kind.progressTitle)
+                    }
+                    if !controller.results.isEmpty {
+                        SavedResultsSection(controller: controller)
                     }
                     Color.clear.frame(height: 1).id(bottomID)
                 }
@@ -126,7 +138,8 @@ struct AssistantMessageView: View {
             }
             .accessibilityElement(children: .combine)
 
-            CitationsView(message: message)
+            CitationsView(message: message, earlierSummaries: earlierSummaries)
+            ToolActivityView(message: message)
 
             if message.status != .streaming, !message.text.isEmpty {
                 actions
@@ -142,13 +155,23 @@ struct AssistantMessageView: View {
                     .font(.dmCaption.weight(.semibold))
                     .foregroundStyle(Color.dmBrandText)
                     .accessibilityHidden(true)
-                Text(SystemModelEngine.provenance.shortLabel)
+                // "On this Mac" would be wrong beside a request that left it, so an answer that asked a service names only
+                // the model here; the remote label next to it says where data went.
+                Text(message.usedServices ? ModelProvenance.inferenceOnlyLabel : SystemModelEngine.provenance.shortLabel)
                     .font(.dmCaption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
             ProvenanceInfoButton()
+            RemoteConnectionLabel(message: message, earlierSummaries: earlierSummaries)
         }
+    }
+
+    /// Saved lines of the answers before this one, by result label. Only an answer that cites a result can need them, so
+    /// the others skip the walk through the conversation.
+    private var earlierSummaries: [String: String] {
+        guard message.text.contains("[M") else { return [:] }
+        return ChatMessage.earlierToolSummaries(in: controller.messages, before: message.id)
     }
 
     @ViewBuilder private var content: some View {
@@ -188,6 +211,26 @@ struct AssistantMessageView: View {
             }
             .help("Copy this answer")
             .accessibilityLabel("Copy answer")
+
+            // Briefs and task lists cover the whole visible conversation, so they sit on the latest finished answer.
+            if isLast, message.status == .complete {
+                Button {
+                    controller.createResult(.brief)
+                } label: {
+                    Label(ResultKind.brief.actionTitle, systemImage: "doc.text")
+                }
+                .disabled(!controller.canCreateResult)
+                .help("Summarize this conversation as Summary, Decisions, Open questions and Next steps")
+                .accessibilityHint("Makes a brief from the conversation so far")
+                Button {
+                    controller.createResult(.tasks)
+                } label: {
+                    Label(ResultKind.tasks.actionTitle, systemImage: "checklist")
+                }
+                .disabled(!controller.canCreateResult)
+                .help("List the tasks in this conversation with owner, due date and evidence")
+                .accessibilityHint("Makes a task list from the conversation so far")
+            }
 
             if isLast, message.status == .stopped, controller.canRetry {
                 Button {

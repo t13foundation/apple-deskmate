@@ -592,6 +592,8 @@ public final class ConnectionManager {
                 }
                 return .success(output)
             } catch {
+                // Stop was pressed while the call was in flight. That is not a connection fault, so the session stays as it is.
+                if error is CancellationError || Task.isCancelled { return .failure(.cancelled) }
                 guard live[id]?.generation == liveSession.generation else {
                     return .failure(.disconnected(host: prepared.host))
                 }

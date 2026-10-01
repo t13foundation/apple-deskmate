@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Multi-line message field. Return sends, Shift+Return (or Option+Return) inserts a new line,
-/// Escape and Command+Period cancel generation. Grows with its text up to `maxLines`, then scrolls.
+/// Escape and Command+Period cancel generation. Tab and Shift+Tab move keyboard focus to the next and previous
+/// control; Option+Tab types a tab. Grows with its text up to `maxLines`, then scrolls.
 ///
 /// Layout contract (this is what keeps the field from crashing the app):
 /// - SwiftUI measures the field with a separate, detached TextKit stack (`ComposerHeightMeter`).
@@ -108,6 +109,19 @@ struct ComposerTextView: NSViewRepresentable {
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 parent.onCancel()
+                return true
+            case #selector(NSResponder.insertTab(_:)):
+                // Tab leaves the field, as in any text field; it does not type a tab character.
+                if textView.hasMarkedText() { return false } // let an input method use Tab
+                textView.window?.selectNextKeyView(textView)
+                return true
+            case #selector(NSResponder.insertBacktab(_:)):
+                if textView.hasMarkedText() { return false }
+                textView.window?.selectPreviousKeyView(textView)
+                return true
+            case #selector(NSResponder.insertTabIgnoringFieldEditor(_:)):
+                // Option+Tab is how a person types a real tab here.
+                textView.insertTabIgnoringFieldEditor(nil)
                 return true
             default:
                 return false

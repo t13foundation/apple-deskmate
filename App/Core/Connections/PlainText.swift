@@ -32,6 +32,15 @@ enum PlainText {
         return String(cleaned.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
+    /// True when `text` has control characters (other than newline and tab) or invisible direction overrides.
+    /// Used to refuse tool inputs that would show differently from what is sent.
+    static func containsHiddenCharacters(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            if scalar == "\n" || scalar == "\t" { return false }
+            return scalar.properties.generalCategory == .control || invisible.contains(scalar)
+        }
+    }
+
     /// Single-line variant for names and labels.
     static func sanitizeLine(_ text: String, limit: Int) -> String {
         sanitize(text, limit: limit)
