@@ -84,6 +84,8 @@ Quitting the app closes open connections (waiting at most two seconds) so an unr
 
 ### Connected tools in chat (Issue #7, WBS-PROT-06)
 
+Status: accepted on the target Mac against the synthetic loopback fixture. Deny sends no request; Allow once sends exactly one; a stopped call stays "stopped; may have been sent" after restart; a combined question used distinct facts from a selected file (offices) and the service (current status), and after one follow-up asking for citations the answer cited both `[S#]` and `[M#]` without a new request. Model limits observed: it can choose weak arguments, omit citation tags or parts of a multi-part question, or misread retrieved text, so a clarifying follow-up is sometimes needed.
+
 Every enabled, supported tool of a connected connection is offered to the on-device model next to `searchMyFiles` as a Foundation Models `Tool`. The input shape comes from the stored MCP schema (text, whole numbers, numbers, yes/no, fixed choices) through `DynamicGenerationSchema`; the arguments arrive as `GeneratedContent` and are decoded to plain values. The tool name is made safe (letters, digits, underscore) and never shadows `searchMyFiles`. The service’s description is cut to 160 characters and marked “not verified”. With nothing connected or enabled no service tool is offered and chat works as before. Tool definitions are counted against the 4096-token window, and a call is refused (nothing sent) when too little room is left to read a reply.
 
 Approval is enforced in code, outside the model. A call runs this path, and every step fails closed without sending anything:
