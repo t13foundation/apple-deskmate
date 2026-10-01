@@ -7,6 +7,10 @@ struct ChatView: View {
     let controller: ConversationController
     let history: ConversationHistory
 
+    /// The main window and the compact panel show this same conversation; only the one on top presents the result
+    /// sheet and speaks the announcements, so nothing is shown or announced twice.
+    @Environment(\.presentsConversationSheets) private var presentsSheets
+
     var body: some View {
         VStack(spacing: 0) {
             if !controller.readiness.isReady {
@@ -76,10 +80,10 @@ struct ChatView: View {
         .dmAnimation(value: history.notices)
         .dmAnimation(value: controller.saveProblem)
         .onChange(of: controller.saveProblem) { old, new in
-            if old != nil, new == nil { Announcer.post("Saved. The conversation is on your Mac again.") }
+            if presentsSheets, old != nil, new == nil { Announcer.post("Saved. The conversation is on your Mac again.") }
         }
         .sheet(isPresented: Binding(
-            get: { controller.presentedResultID != nil },
+            get: { presentsSheets && controller.presentedResultID != nil },
             set: { if !$0 { controller.presentedResultID = nil } }
         )) {
             if let id = controller.presentedResultID {
@@ -87,6 +91,7 @@ struct ChatView: View {
             }
         }
         .onChange(of: controller.phase) { old, new in
+            guard presentsSheets else { return }
             if old == .creatingResult, new == .idle {
                 if let id = controller.presentedResultID, let result = controller.result(id) {
                     Announcer.post("\(result.kind.title) ready")

@@ -25,7 +25,8 @@ struct DeskMateApp: App {
     @State private var connections: ConnectionManager
     @State private var approvals: ToolApprovalBroker
     @State private var history: ConversationHistory
-    @State private var navigation = AppNavigation()
+    @State private var navigation: AppNavigation
+    @State private var desktop: DesktopAccess
 
     init() {
         WindowLayoutMigration.run()
@@ -49,19 +50,43 @@ struct DeskMateApp: App {
         let controller = ConversationController(engine: engine, history: history)
         _controller = State(initialValue: controller)
         AppDelegate.controller = controller
+
+        // The compact panel, the menu bar, the global shortcut and the widget snapshot all hang off this one object.
+        // It shows the same controller, history and library as the main window; it keeps no conversation of its own.
+        let navigation = AppNavigation()
+        _navigation = State(initialValue: navigation)
+        let desktop = DesktopAccess(
+            controller: controller,
+            history: history,
+            library: library,
+            approvals: approvals,
+            shortcuts: ShortcutSettings(),
+            mainNavigation: navigation
+        )
+        _desktop = State(initialValue: desktop)
+        AppDelegate.desktop = desktop
     }
 
     var body: some Scene {
         Window("DeskMate", id: "main") {
-            RootView(controller: controller, library: library, connections: connections, history: history, approvals: approvals, navigation: navigation)
-                .tint(Color.dmBrandFill)
+            RootView(
+                controller: controller, library: library, connections: connections, history: history,
+                approvals: approvals, navigation: navigation, desktop: desktop
+            )
+            .tint(Color.dmBrandFill)
         }
         .defaultSize(width: DS.Layout.windowDefaultWidth, height: DS.Layout.windowDefaultHeight)
         .commands { ConversationCommands(controller: controller, navigation: navigation) }
 
+        // Always available, whatever happens to the keyboard shortcut.
+        MenuBarExtra("DeskMate", systemImage: "sparkles") {
+            MenuBarContent(desktop: desktop)
+        }
+        .menuBarExtraStyle(.menu)
+
         // ⌘, opens it. It explains what is saved and offers the two separate clear actions.
         Settings {
-            SettingsView(history: history, controller: controller, library: library)
+            SettingsView(history: history, controller: controller, library: library, desktop: desktop)
                 .tint(Color.dmBrandFill)
         }
     }
@@ -92,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static var controller: ConversationController?
     /// Set once by `DeskMateApp` so quitting ends any approval that is still waiting. Nothing waiting is ever sent.
     static var approvals: ToolApprovalBroker?
+    /// Set once by `DeskMateApp`: the panel, shortcut, menu bar and widget links.
+    static var desktop: DesktopAccess?
 
     /// Longest quitting waits for the conversation to be saved and connections to close. Neither may hold the app open.
     private static let shutdownGrace: Duration = .seconds(2)
@@ -102,9 +129,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Makes `swift run` (an unbundled executable) behave like a normal foreground app.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
+        Self.desktop?.start()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// DeskMate keeps running with the menu bar icon, the shortcut and the widget links after its window is closed.
+    /// Quit is in the menu bar menu and the app menu.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// A widget link or another app asking DeskMate to open a deskmate:// address. Only DeskMate's own routes act.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { Self.desktop?.open(url: url) }
+    }
+
+    /// Clicking the Dock icon with no main window on screen brings it back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let desktop = Self.desktop, !desktop.mainWindowIsShowing, !desktop.panel.isVisible {
+            return !desktop.reopen()
+        }
+        return true
+    }
 
     /// Saves the conversation on screen (an answer still streaming is kept as stopped) and closes open connections
     /// (which also stops in-flight requests) before quitting, for at most two seconds.

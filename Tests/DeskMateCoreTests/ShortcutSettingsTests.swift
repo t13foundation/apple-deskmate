@@ -64,6 +64,32 @@ import Foundation
         #expect(ShortcutSettings(defaults: defaults).shortcut == .standard)
     }
 
+    @Test func keysAreNamedForDisplayAndUnrecordableKeysHaveNoName() {
+        #expect(Shortcut.keyName(forKeyCode: 49, characters: " ") == "Space")
+        #expect(Shortcut.keyName(forKeyCode: 40, characters: "k") == "K")
+        #expect(Shortcut.keyName(forKeyCode: 122, characters: "\u{F704}") == "F1")
+        #expect(Shortcut.keyName(forKeyCode: 123, characters: "\u{F702}") == "←")
+        #expect(Shortcut.keyName(forKeyCode: 200, characters: "\u{F750}") == "", "a private-use function key has no printable name")
+        #expect(Shortcut.keyName(forKeyCode: 200, characters: nil) == "")
+        #expect(Shortcut.keyName(forKeyCode: 18, characters: "1") == "1")
+    }
+
+    @Test func aRefusedShortcutIsExplainedAndTheOneInUseStays() {
+        let (defaults, cleanUp) = isolatedDefaults()
+        defer { cleanUp() }
+        let settings = ShortcutSettings(defaults: defaults)
+        settings.registration = .registered
+        let attempted = Shortcut(keyCode: 49, modifiers: [.command], keyName: "Space")
+        settings.rejection = ShortcutSettings.Rejection(shortcut: attempted, reason: .inUse)
+        #expect(settings.shortcut == .standard, "the working shortcut is untouched")
+        #expect(settings.problem?.contains("⌘Space") == true)
+        #expect(settings.problem?.contains("different shortcut") == true)
+
+        settings.choose(Shortcut(keyCode: 40, modifiers: [.option], keyName: "K"))
+        #expect(settings.rejection == nil)
+        #expect(settings.problem == nil)
+    }
+
     @Test func aConflictIsExplainedPlainlyWithANextStep() {
         let (defaults, cleanUp) = isolatedDefaults()
         defer { cleanUp() }

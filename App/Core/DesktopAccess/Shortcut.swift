@@ -43,6 +43,26 @@ public struct Shortcut: Codable, Equatable, Sendable {
         return text + keyName
     }
 
+    /// The name of a key as it is shown, from its hardware key code and the character it types without modifiers.
+    public static func keyName(forKeyCode code: UInt32, characters: String?) -> String {
+        if let special = specialKeys[code] { return special }
+        let typed = (characters ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        // A printable character is its own name; anything else (a control character or nothing) is not recordable.
+        if typed.count == 1, let scalar = typed.unicodeScalars.first, scalar.value >= 0x21, !(0xF700...0xF8FF).contains(scalar.value) {
+            return typed
+        }
+        return ""
+    }
+
+    private static let specialKeys: [UInt32: String] = [
+        49: "Space", 36: "Return", 48: "Tab", 51: "Delete", 117: "Forward Delete", 76: "Enter",
+        123: "←", 124: "→", 125: "↓", 126: "↑",
+        115: "Home", 119: "End", 116: "Page Up", 121: "Page Down",
+        122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8",
+        101: "F9", 109: "F10", 103: "F11", 111: "F12", 105: "F13", 107: "F14", 113: "F15",
+        106: "F16", 64: "F17", 79: "F18", 80: "F19", 90: "F20",
+    ]
+
     /// Spoken form for VoiceOver, for example "Option Space".
     public var spoken: String {
         var words: [String] = []
@@ -92,6 +112,18 @@ public final class ShortcutSettings {
     /// The outcome of the last attempt to register it. Set by the app layer that talks to the system.
     public var registration: ShortcutRegistration = .off
 
+    /// A shortcut the person tried that the system would not give, kept until the next change so it can be explained.
+    /// The shortcut that was already in use stays in place.
+    public struct Rejection: Equatable, Sendable {
+        public let shortcut: Shortcut
+        public let reason: ShortcutRegistration
+        public init(shortcut: Shortcut, reason: ShortcutRegistration) {
+            self.shortcut = shortcut
+            self.reason = reason
+        }
+    }
+    public var rejection: Rejection?
+
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
@@ -116,6 +148,7 @@ public final class ShortcutSettings {
         defaults.set(data, forKey: Self.defaultsKey)
         defaults.set(false, forKey: Self.disabledKey)
         shortcut = new
+        rejection = nil
         return true
     }
 
@@ -123,14 +156,19 @@ public final class ShortcutSettings {
         defaults.set(true, forKey: Self.disabledKey)
         shortcut = nil
         registration = .off
+        rejection = nil
     }
 
     public func restoreStandard() {
         defaults.removeObject(forKey: Self.defaultsKey)
         defaults.set(false, forKey: Self.disabledKey)
         shortcut = .standard
+        rejection = nil
     }
 
-    /// Why the current shortcut is not working, if it is not.
-    public var problem: String? { registration.explanation(for: shortcut) }
+    /// Why a shortcut is not working, if it is not: the one just tried, or else the one in use.
+    public var problem: String? {
+        if let rejection { return rejection.reason.explanation(for: rejection.shortcut) }
+        return registration.explanation(for: shortcut)
+    }
 }
