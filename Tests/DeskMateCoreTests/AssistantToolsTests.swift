@@ -407,6 +407,130 @@ private final class Rig {
     }
 }
 
+// MARK: - What a failed call says about the network, live and after a restart
+
+/// A session whose tool call reaches the "service" and fails there, like a server that errors out after the request left.
+private final class BrokenSession: ConnectionSession, @unchecked Sendable {
+    let tools: [ConnectionTool]
+    private let lock = NSLock()
+    private var _calls = 0
+    init(tools: [ConnectionTool]) { self.tools = tools }
+    var calls: Int { lock.withLock { _calls } }
+    func listTools() async throws -> ToolListing { ToolListing(tools: tools) }
+    func callTool(name: String, arguments: ValidatedToolArguments) async throws -> ToolCallOutput {
+        lock.withLock { _calls += 1 }
+        throw URLError(.networkConnectionLost)
+    }
+    func close() async {}
+}
+
+private final class BrokenFactory: ConnectionSessionFactory, @unchecked Sendable {
+    let session: BrokenSession
+    init(tools: [ConnectionTool]) { session = BrokenSession(tools: tools) }
+    func open(endpoint: ConnectionEndpoint, token: String?) async throws -> OpenedSession {
+        OpenedSession(
+            session: session,
+            negotiation: ConnectionNegotiation(protocolVersion: "2025-06-18", serverName: "Broken", serverVersion: "1", offersTools: true)
+        )
+    }
+}
+
+@MainActor
+@Suite(.serialized) struct ToolFailureProvenanceTests {
+    /// Saves the answer the way History does, then reads it back from disk as a restart would.
+    private func reopened(_ message: ChatMessage) throws -> ChatMessage {
+        let store = TempStore()
+        defer { store.remove() }
+        var record = sampleRecord()
+        record.messages[1] = StoredMessage(message)
+        try store.storage.save(record)
+        guard case .loaded(let loaded) = store.storage.load(record.id) else {
+            Issue.record("the saved answer should load")
+            return message
+        }
+        return loaded.messages[1].chatMessage
+    }
+
+    @Test func anApprovedCallRejectedBeforeAnyRequestShowsNoRemoteHostLiveOrAfterARestart() async throws {
+        let factory = FakeFactory(tools: [makeTool("allowed")])
+        let rig = Rig(factory: factory)
+        try await rig.connect(enable: ["allowed"])
+        rig.runner.beginTurn()
+
+        // The person approves, but the connection was turned off while they were deciding: execute refuses before sending.
+        let task = Task { await rig.run("allowed", inputs(["query": "budget"])) }
+        await waitUntil { rig.broker.pending != nil }
+        await rig.manager.setConnectionEnabled(rig.connectionID, false)
+        rig.broker.allowOnce(try #require(rig.broker.pending?.id))
+        _ = await task.value
+
+        #expect(factory.sessions[0].calls.isEmpty, "nothing reached the service")
+        let record = try #require(rig.runner.records.first)
+        guard case .failed = record.outcome else {
+            Issue.record("the call should have failed, got \(record.outcome)")
+            return
+        }
+        #expect(!record.sentRequest)
+        #expect(record.statusWord == "approved, not sent")
+        #expect(record.summaryLine.hasPrefix("Not sent to Lumen (127.0.0.1:8765): allowed (approved, failed before sending: "))
+        #expect(!record.summaryLine.contains("Asked"))
+
+        let message = ChatMessage(role: .assistant, text: "I could not check.", toolCalls: rig.runner.records)
+        #expect(message.remoteHosts.isEmpty, "live")
+        #expect(ModelProvenance.remoteLabel(hosts: message.remoteHosts, usedServices: message.usedServices) == "Remote connection: nothing was sent")
+
+        let restored = try reopened(message)
+        #expect(restored.toolCalls.isEmpty, "only the saved line is left after a restart")
+        #expect(restored.toolActivityLines.count == 1)
+        #expect(restored.toolActivityLines[0] == record.summaryLine)
+        #expect(restored.remoteHosts.isEmpty, "after the restart")
+        #expect(ModelProvenance.remoteLabel(hosts: restored.remoteHosts, usedServices: restored.usedServices) == "Remote connection: nothing was sent")
+    }
+
+    @Test func aCallThatWasSentAndThenFailedStillShowsTheHostLiveAndAfterARestart() async throws {
+        let factory = BrokenFactory(tools: [makeTool("allowed")])
+        let rig = Rig(factory: factory)
+        try await rig.connect(enable: ["allowed"])
+        rig.allowEverything()
+        rig.runner.beginTurn()
+
+        _ = await rig.run("allowed", inputs(["query": "budget"]))
+
+        #expect(factory.session.calls == 1, "the request did reach the service")
+        let record = try #require(rig.runner.records.first)
+        guard case .failed = record.outcome else {
+            Issue.record("the call should have failed, got \(record.outcome)")
+            return
+        }
+        #expect(record.sentRequest)
+        #expect(record.statusWord == "approved, failed")
+        #expect(record.summaryLine.hasPrefix("Asked Lumen (127.0.0.1:8765): allowed (approved, failed: "))
+
+        let message = ChatMessage(role: .assistant, text: "It failed.", toolCalls: rig.runner.records)
+        #expect(message.remoteHosts == ["127.0.0.1:8765"], "live")
+        #expect(try reopened(message).remoteHosts == ["127.0.0.1:8765"], "after the restart")
+    }
+
+    @Test func oldSavedFailureLinesStillDecodeAndKeepTheirMeaningOfPossiblySent() {
+        // Written by earlier versions: every failure was "Asked ...", so it stays "possibly sent".
+        let old = "Asked Lumen (127.0.0.1:8765): get_project_status (approved, failed: The service did not answer in time.)"
+        #expect(ToolCallRecord.remoteHosts(inSummary: old) == ["127.0.0.1:8765"])
+        let stored = StoredMessage(id: UUID(), role: .assistant, text: "x", createdAt: Date(timeIntervalSince1970: 1), status: .complete, toolSummary: old)
+        #expect(stored.chatMessage.toolActivityLines == [old])
+        #expect(stored.chatMessage.remoteHosts == ["127.0.0.1:8765"])
+    }
+
+    @Test func notSentLinesNeverCountEvenWhenTheirTextMentionsAsking() {
+        let lines = [
+            "Not sent to Lumen (h1): t (approved, failed before sending: Asked for a tool that changed)",
+            "Not sent to Asked Lumen (h2): t (stopped)",
+            "Declined Lumen (h3): t (denied, nothing sent)",
+            "[M1] Asked Lumen (h4): t (approved)",
+        ].joined(separator: "\n")
+        #expect(ToolCallRecord.remoteHosts(inSummary: lines) == ["h4"])
+    }
+}
+
 // MARK: - A real service stack (in-process fixture, synthetic data)
 
 private final class Log: @unchecked Sendable {

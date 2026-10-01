@@ -76,7 +76,7 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
         case .awaitingApproval: "waiting for you"
         case .running: "approved, running"
         case .succeeded: "approved"
-        case .failed: "approved, failed"
+        case .failed: sentRequest ? "approved, failed" : "approved, not sent"
         case .denied: "denied"
         case .notRun: "not run"
         case .cancelled: sentRequest ? "approved, stopped" : "stopped"
@@ -94,6 +94,14 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
     }
 
     /// The single visible line saved with the answer. It carries no inputs, no response and no secrets.
+    ///
+    /// Saved wording, which `remoteHosts(inSummary:)` reads back after a restart:
+    /// - "Asked ..." means a request was sent or may have been sent, so its host counts as reached. A call that was
+    ///   approved and then failed after sending is "Asked ... (approved, failed: <reason>)".
+    /// - "Not sent to ..." means nothing left this Mac (refused, stopped before sending, or approved but rejected before
+    ///   any request: "Not sent to ... (approved, failed before sending: <reason>)"). Its host never counts.
+    /// Lines saved by earlier versions describe every failure as "Asked ... (approved, failed: ...)"; they keep that
+    /// meaning (possibly sent), because the old text cannot tell the two cases apart. They still decode and display.
     public var summaryLine: String {
         let place = "\(Self.line(connectionName, limit: 40)) (\(Self.line(host, limit: 60))): \(Self.line(toolName, limit: 40))"
         let tag = label.map { "[\($0)] " } ?? ""
@@ -101,7 +109,10 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
         case .succeeded, .running, .awaitingApproval:
             return "\(tag)Asked \(place) (approved)"
         case .failed(let reason):
-            return "Asked \(place) (approved, failed: \(Self.line(reason, limit: 80)))"
+            let shortReason = Self.line(reason, limit: 80)
+            return sentRequest
+                ? "Asked \(place) (approved, failed: \(shortReason))"
+                : "Not sent to \(place) (approved, failed before sending: \(shortReason))"
         case .denied:
             return "Declined \(place) (denied, nothing sent)"
         case .notRun(let reason):
