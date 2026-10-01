@@ -38,6 +38,12 @@ extension ConversationController {
         persist()
     }
 
+    /// Before quitting: settles what is streaming, saves it and waits until the files are written.
+    public func flushForQuit() async {
+        settleForDeparture()
+        await history?.waitForWrites()
+    }
+
     // MARK: Reopening
 
     /// Shows a saved conversation and gives the model back the most recent finished turns that fit its context.

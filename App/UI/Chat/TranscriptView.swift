@@ -17,8 +17,20 @@ struct TranscriptView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DS.Spacing.l) {
                     ForEach(controller.messages) { message in
+                        if message.id == controller.memoryBoundaryID {
+                            MemoryNote()
+                        }
                         MessageView(message: message, isLast: message.id == controller.messages.last?.id, controller: controller)
                             .id(message.id)
+                    }
+                    if controller.omittedFromMemory > 0, controller.memoryBoundaryID == nil {
+                        MemoryNote()
+                    }
+                    if controller.phase == .creatingResult, let kind = controller.resultInProgress {
+                        WorkingIndicator(label: kind.progressTitle)
+                    }
+                    if !controller.results.isEmpty {
+                        SavedResultsSection(controller: controller)
                     }
                     Color.clear.frame(height: 1).id(bottomID)
                 }
@@ -188,6 +200,26 @@ struct AssistantMessageView: View {
             }
             .help("Copy this answer")
             .accessibilityLabel("Copy answer")
+
+            // Briefs and task lists cover the whole visible conversation, so they sit on the latest finished answer.
+            if isLast, message.status == .complete {
+                Button {
+                    controller.createResult(.brief)
+                } label: {
+                    Label(ResultKind.brief.actionTitle, systemImage: "doc.text")
+                }
+                .disabled(!controller.canCreateResult)
+                .help("Summarize this conversation as Summary, Decisions, Open questions and Next steps")
+                .accessibilityHint("Makes a brief from the conversation so far")
+                Button {
+                    controller.createResult(.tasks)
+                } label: {
+                    Label(ResultKind.tasks.actionTitle, systemImage: "checklist")
+                }
+                .disabled(!controller.canCreateResult)
+                .help("List the tasks in this conversation with owner, due date and evidence")
+                .accessibilityHint("Makes a task list from the conversation so far")
+            }
 
             if isLast, message.status == .stopped, controller.canRetry {
                 Button {
