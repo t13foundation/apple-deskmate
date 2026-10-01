@@ -190,11 +190,21 @@ public struct ConversationStorage: Sendable {
         writeIndex(entries)
     }
 
-    /// Removes one conversation. Set-aside copies of damaged files are not records and stay until Clear history.
-    public func delete(_ id: UUID) {
-        try? FileManager.default.removeItem(at: recordURL(id))
+    /// Removes one conversation and says whether it is gone. Returns true when the record file no longer exists (a file
+    /// that was already missing counts as gone) and false when it is still there, for example because the folder is
+    /// read-only. A failure leaves the record and the index untouched. Set-aside copies of damaged files are not records
+    /// and stay until Clear history.
+    @discardableResult
+    public func delete(_ id: UUID) -> Bool {
+        let url = recordURL(id)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            if FileManager.default.fileExists(atPath: url.path) { return false }
+        }
         let entries = readIndex().filter { $0.summary.id != id }
         if FileManager.default.fileExists(atPath: indexURL.path) { writeIndex(entries) }
+        return true
     }
 
     /// Removes every file DeskMate wrote here: records, the index and set-aside copies. Files of other names are left

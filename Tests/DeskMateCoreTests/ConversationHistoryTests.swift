@@ -24,7 +24,7 @@ import Foundation
         history.onRemoval { removals.append($0) }
         let record = sampleRecord()
         history.save(record)
-        history.delete(record.id)
+        #expect(await history.delete(record.id))
         history.save(record)
         await history.waitForWrites()
         #expect(removals == [.conversation(record.id)])

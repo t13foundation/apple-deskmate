@@ -109,6 +109,42 @@ struct RootView: View {
     }
 }
 
+/// Shown in Recent when a conversation could not be deleted from this Mac. The row stays listed; Try again removes it
+/// once it can. Names no path and no conversation text.
+private struct DeletionProblemRow: View {
+    let problem: DeletionProblem
+    let controller: ConversationController
+    let history: ConversationHistory
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.s) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Spacing.s) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(Color.dmWarning)
+                    .accessibilityHidden(true)
+                Text(problem.message)
+                    .font(.dmCaption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: DS.Spacing.m) {
+                Button("Try again") {
+                    Task {
+                        if await controller.retryDeletion() { Announcer.post("Conversation deleted") }
+                    }
+                }
+                .accessibilityHint("Tries to delete the conversation again")
+                Button("Dismiss") { history.dismissDeletionProblem() }
+                    .accessibilityHint("Hides this message. The conversation stays in Recent")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+        }
+        .padding(.vertical, DS.Spacing.xs)
+        .accessibilityElement(children: .contain)
+        .onAppear { Announcer.post(problem.message) }
+    }
+}
+
 /// Sidebar rows: New chat, Recent conversations, My files, Connections, and Settings.
 struct SidebarView: View {
     let controller: ConversationController
@@ -140,6 +176,9 @@ struct SidebarView: View {
             }
             if showsCurrentSeparately || !history.summaries.isEmpty {
                 Section("Recent") {
+                    if let problem = history.deletionProblem {
+                        DeletionProblemRow(problem: problem, controller: controller, history: history)
+                    }
                     if showsCurrentSeparately {
                         Label(controller.conversationTitle, systemImage: "bubble.left")
                             .lineLimit(1)
@@ -188,8 +227,11 @@ struct SidebarView: View {
             presenting: pendingDeletion
         ) { summary in
             Button("Delete conversation", role: .destructive) {
-                controller.deleteConversation(summary.id)
-                Announcer.post("Conversation deleted")
+                let id = summary.id
+                // Announced only once the file is really gone. A failure keeps the row and shows the notice instead.
+                Task {
+                    if await controller.deleteConversation(id) { Announcer.post("Conversation deleted") }
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: { summary in

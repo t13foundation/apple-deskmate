@@ -10,7 +10,9 @@ extension ConversationController {
         guard let history else { return }
         guard !messages.isEmpty else {
             if isSaved {
-                history.delete(conversationID)
+                // Nothing is left to keep, so the record goes. If it cannot be removed, History says so and keeps the row.
+                let emptied = conversationID
+                Task { await history.delete(emptied) }
                 conversationID = UUID()
                 createdAt = Date()
                 isSaved = false
@@ -107,12 +109,27 @@ extension ConversationController {
 
     // MARK: Deleting
 
-    /// Deletes one saved conversation. If it is the one on screen, the screen becomes a new chat; the draft and files
-    /// being prepared are kept. Nothing outside DeskMate's own conversation records is touched.
-    public func deleteConversation(_ id: UUID) {
-        guard let history else { return }
+    /// Deletes one saved conversation and returns whether it is gone. If it is the one on screen, the screen becomes a
+    /// new chat once the deletion has succeeded; the draft and files being prepared are kept. When the deletion fails the
+    /// conversation stays exactly as it was (on screen and in Recent) and `history.deletionProblem` says so. Nothing
+    /// outside DeskMate's own conversation records is touched.
+    @discardableResult
+    public func deleteConversation(_ id: UUID) async -> Bool {
+        guard let history else { return false }
+        guard await history.delete(id) else {
+            // Saves of this conversation were dropped while the deletion ran; write the screen's current state again.
+            if id == conversationID, hasConversation { persist() }
+            return false
+        }
         if id == conversationID { leaveWithoutSaving() }
-        history.delete(id)
+        return true
+    }
+
+    /// Tries again to delete the conversation whose deletion failed.
+    @discardableResult
+    public func retryDeletion() async -> Bool {
+        guard let id = history?.deletionProblem?.conversationID else { return false }
+        return await deleteConversation(id)
     }
 
     /// Clear history: removes every saved conversation and anything derived from them. The screen becomes a new chat.

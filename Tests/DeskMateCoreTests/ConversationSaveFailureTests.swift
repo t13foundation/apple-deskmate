@@ -75,6 +75,149 @@ import Foundation
         #expect(onDisk == change, "the retained edit reached the disk, not the old content")
     }
 
+    // MARK: A failed edit survives switching conversations
+
+    @Test func aFailedEditIsShownAgainAfterSwitchingAwayAndRetryWritesIt() async throws {
+        let store = TempStore()
+        defer {
+            try? setPermissions(0o700, of: store.storage.directory)
+            store.remove()
+        }
+        let history = ConversationHistory(storage: store.storage)
+        await history.load()
+        // 1. The old record is saved, and so is another conversation to switch to.
+        let old = sampleRecord(title: "Old", updated: 1_000)
+        let other = sampleRecord(title: "Other", updated: 500)
+        history.save(old)
+        history.save(other)
+        await history.waitForWrites()
+        let before = try fileBytes(store, old.id)
+
+        // 2. The folder is read-only and an edited version is saved: the save fails.
+        try setPermissions(0o500, of: store.storage.directory)
+        let change = edited(old, markdown: "# Brief: edited and not yet on disk\n")
+        history.save(change)
+        await history.waitForWrites()
+        #expect(history.isUnsaved(old.id))
+        #expect(try fileBytes(store, old.id) == before)
+
+        // 3. Another conversation is opened, then the edited one again: the newer edit is shown, not the old file.
+        #expect(await history.open(other.id) == .record(other))
+        #expect(await history.open(old.id) == .record(change))
+        #expect(history.saveProblem?.category == .permission, "still told, and still kept while the app is open")
+        #expect(try fileBytes(store, old.id) == before, "opening writes nothing")
+
+        // 4. Permissions are back and Try again writes the newer edit; the notice clears.
+        try setPermissions(0o700, of: store.storage.directory)
+        history.retrySave()
+        await history.waitForWrites()
+        #expect(history.saveProblem == nil)
+        #expect(history.unsavedIDs.isEmpty)
+        #expect(store.storage.load(old.id) == .loaded(change))
+        #expect(await history.open(old.id) == .record(change))
+    }
+
+    @Test func aConversationWhoseFirstSaveFailedStillOpensFromMemory() async throws {
+        let store = TempStore()
+        defer {
+            try? setPermissions(0o700, of: store.storage.directory)
+            store.remove()
+        }
+        let history = ConversationHistory(storage: store.storage)
+        let anchor = sampleRecord(title: "Anchor")
+        history.save(anchor)
+        await history.waitForWrites()
+        try setPermissions(0o500, of: store.storage.directory)
+        let fresh = sampleRecord(title: "Never reached the disk", updated: 9_000)
+        history.save(fresh)
+        await history.waitForWrites()
+        #expect(history.isUnsaved(fresh.id))
+        #expect(!store.names().contains("\(fresh.id.uuidString).json"))
+
+        #expect(await history.open(fresh.id) == .record(fresh), "not reported as missing and dropped from Recent")
+        #expect(history.summaries.contains { $0.id == fresh.id })
+
+        try setPermissions(0o700, of: store.storage.directory)
+        history.retrySave()
+        await history.waitForWrites()
+        #expect(store.storage.load(fresh.id) == .loaded(fresh))
+    }
+
+    @Test func aLaterSaveRetriesTheNewestCopyNeverAStaleOne() async throws {
+        let store = TempStore()
+        defer {
+            try? setPermissions(0o700, of: store.storage.directory)
+            store.remove()
+        }
+        let history = ConversationHistory(storage: store.storage)
+        let first = sampleRecord(title: "First", updated: 1_000)
+        history.save(first)
+        await history.waitForWrites()
+        try setPermissions(0o500, of: store.storage.directory)
+        let stale = edited(first, markdown: "# stale edit\n")
+        history.save(stale)
+        await history.waitForWrites()
+        #expect(history.isUnsaved(first.id))
+
+        try setPermissions(0o700, of: store.storage.directory)
+        var newer = edited(stale, markdown: "# newer edit\n")
+        newer.updatedAt = stale.updatedAt.addingTimeInterval(60)
+        history.save(newer)
+        // A save of another conversation retries the unsaved one while the newer write is still queued.
+        history.save(sampleRecord(title: "Unrelated", updated: 5))
+        await history.waitForWrites()
+
+        #expect(store.storage.load(first.id) == .loaded(newer), "the stale copy never overwrote the newer one")
+        #expect(history.saveProblem == nil)
+    }
+
+    @Test func aFailedEditOnScreenSurvivesNewChatAndReopeningAndIsWrittenByTryAgain() async throws {
+        let store = TempStore()
+        defer {
+            try? setPermissions(0o700, of: store.storage.directory)
+            store.remove()
+        }
+        let history = ConversationHistory(storage: store.storage)
+        let engine = ScriptedEngine()
+        let controller = ConversationController(engine: engine, history: history)
+        engine.behaviors = [.chunks(["A plan for money."])]
+        controller.draft = "What is a budget?"
+        controller.send()
+        await controller.waitUntilIdle()
+        let result = StoredResult(kind: .brief, markdown: "# Brief: first\n")
+        controller.results = [result]
+        controller.updateResult(result.id, markdown: "# Brief: saved version\n")
+        await history.waitForWrites()
+        let id = controller.conversationID
+
+        try setPermissions(0o500, of: store.storage.directory)
+        controller.updateResult(result.id, markdown: "# Brief: edited while nothing could be written\n")
+        await history.waitForWrites()
+        #expect(controller.currentConversationUnsaved)
+
+        // New chat leaves the conversation (its departure save fails too), then the conversation is reopened.
+        controller.newChat()
+        await history.waitForWrites()
+        #expect(controller.conversationID != id)
+        await controller.open(id)
+        await controller.waitForRestore()
+        #expect(controller.conversationID == id)
+        #expect(controller.result(result.id)?.markdown == "# Brief: edited while nothing could be written\n", "the newer edit, not the old file")
+        #expect(controller.messages.map(\.text) == ["What is a budget?", "A plan for money."])
+        #expect(controller.saveProblem != nil)
+        #expect(controller.currentConversationUnsaved)
+
+        try setPermissions(0o700, of: store.storage.directory)
+        controller.retrySave()
+        await history.waitForWrites()
+        #expect(controller.saveProblem == nil)
+        guard case .loaded(let onDisk) = store.storage.load(id) else {
+            Issue.record("the conversation should be on disk after Try again")
+            return
+        }
+        #expect(onDisk.results.first?.markdown == "# Brief: edited while nothing could be written\n")
+    }
+
     @Test func theNextSaveRetriesAnEarlierFailureOnItsOwn() async throws {
         let store = TempStore()
         defer {
@@ -143,11 +286,13 @@ import Foundation
         await history.waitForWrites()
         #expect(history.saveProblem != nil)
 
-        history.delete(record.id)
+        // With the folder still read-only the file cannot be removed, so the conversation is not deleted (see
+        // ConversationDeletionTests). Once writing works again, deleting also drops the unsaved copy and its notice.
+        try setPermissions(0o700, of: store.storage.directory)
+        #expect(await history.delete(record.id))
         #expect(history.saveProblem == nil)
         #expect(history.unsavedIDs.isEmpty)
-        // A retry after the permissions come back must not bring the deleted conversation back.
-        try setPermissions(0o700, of: store.storage.directory)
+        // A retry must not bring the deleted conversation back.
         history.retrySave()
         await history.waitForWrites()
         #expect(store.storage.list().summaries.isEmpty)

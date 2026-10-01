@@ -177,7 +177,7 @@ import Foundation
         await ask(rig, "Q1", answer: "A1")
         let id = rig.controller.conversationID
         rig.controller.draft = "half-typed"
-        rig.controller.deleteConversation(id)
+        #expect(await rig.controller.deleteConversation(id))
         await rig.history.waitForWrites()
         #expect(rig.controller.messages.isEmpty)
         #expect(rig.controller.draft == "half-typed")
@@ -194,7 +194,7 @@ import Foundation
         let firstID = rig.controller.conversationID
         rig.controller.newChat()
         await ask(rig, "Q2", answer: "A2")
-        rig.controller.deleteConversation(firstID)
+        #expect(await rig.controller.deleteConversation(firstID))
         await rig.history.waitForWrites()
         #expect(rig.controller.messages.map(\.text) == ["Q2", "A2"])
         #expect(rig.history.summaries.map(\.id) == [rig.controller.conversationID])
