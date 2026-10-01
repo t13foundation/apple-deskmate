@@ -22,9 +22,43 @@ struct MemoryNote: View {
     }
 }
 
+/// The visible, recoverable notice for a conversation that could not be written to disk. It names no path and no
+/// content. It clears by itself when a write succeeds; Try again re-attempts the write at once.
+struct SaveProblemNotice: View {
+    let controller: ConversationController
+    /// Runs before the retry, so an open editor can hand over its latest text.
+    var beforeRetry: () -> Void = {}
+
+    var body: some View {
+        if let problem = controller.saveProblem {
+            DMNotice(
+                symbol: "exclamationmark.triangle",
+                tint: .dmWarning,
+                title: problem.title,
+                message: problem.message,
+                actionsBelow: true
+            ) {
+                Button("Try again") {
+                    beforeRetry()
+                    controller.retrySave()
+                }
+                .accessibilityHint("Tries to save the conversation again")
+            }
+            .accessibilityLabel("Problem: \(problem.title). \(problem.message)")
+            .onAppear { Announcer.post("\(problem.title). \(problem.message)") }
+        }
+    }
+}
+
 /// The briefs and task lists made in this conversation. Each opens in the result sheet.
 struct SavedResultsSection: View {
     let controller: ConversationController
+
+    /// The time line of a result. It never says "saved" while the last write failed.
+    private func timeLine(_ result: StoredResult) -> String {
+        let when = result.updatedAt.formatted(date: .abbreviated, time: .shortened)
+        return controller.currentConversationUnsaved ? "Not saved to this Mac · edited \(when)" : when
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.s) {
@@ -43,7 +77,9 @@ struct SavedResultsSection: View {
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(result.kind.title).font(.dmBody.weight(.medium))
-                            Text(result.updatedAt.formatted(date: .abbreviated, time: .shortened)).dmFootnote()
+                            Text(timeLine(result))
+                                .font(.dmCaption)
+                                .foregroundStyle(controller.currentConversationUnsaved ? Color.dmWarning : Color.secondary)
                         }
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.right")
@@ -56,7 +92,7 @@ struct SavedResultsSection: View {
                     .contentShape(RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(result.kind.title), \(result.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                .accessibilityLabel("\(result.kind.title), \(timeLine(result))")
                 .accessibilityHint("Opens it so you can edit, copy or save it")
             }
         }
@@ -88,6 +124,12 @@ struct ResultSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if controller.currentConversationUnsaved {
+                SaveProblemNotice(controller: controller) {
+                    if loaded { controller.updateResult(resultID, markdown: text) }
+                }
+                .padding([.horizontal, .bottom], DS.Spacing.l)
+            }
             Divider()
             content
             Divider()
@@ -143,7 +185,9 @@ struct ResultSheet: View {
                 Text(kind.title)
                     .font(.dmTitle)
                     .accessibilityAddTraits(.isHeader)
-                Text("Edit it here, then copy it or save it as a Markdown file. Your edits are saved with this conversation.")
+                Text(controller.currentConversationUnsaved
+                    ? "Edit it here, then copy it or save it as a Markdown file. Your edits are kept while the app is open but are not saved yet."
+                    : "Edit it here, then copy it or save it as a Markdown file. Your edits are saved with this conversation.")
                     .dmFootnote()
             }
             Spacer(minLength: DS.Spacing.m)

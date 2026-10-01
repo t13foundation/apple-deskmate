@@ -23,6 +23,14 @@ struct ChatView: View {
                     .transition(.opacity)
             }
 
+            if controller.saveProblem != nil, !(controller.presentedResultID != nil && controller.currentConversationUnsaved) {
+                // While the result sheet is open and shows the same notice, this one is left out so it is not announced twice.
+                SaveProblemNotice(controller: controller)
+                    .dmReadingColumn()
+                    .padding(.top, DS.Spacing.l)
+                    .transition(.opacity)
+            }
+
             Group {
                 if controller.hasConversation {
                     TranscriptView(controller: controller)
@@ -66,6 +74,10 @@ struct ChatView: View {
         .dmAnimation(value: controller.failure)
         .dmAnimation(value: controller.resultFailure)
         .dmAnimation(value: history.notices)
+        .dmAnimation(value: controller.saveProblem)
+        .onChange(of: controller.saveProblem) { old, new in
+            if old != nil, new == nil { Announcer.post("Saved. The conversation is on your Mac again.") }
+        }
         .sheet(isPresented: Binding(
             get: { controller.presentedResultID != nil },
             set: { if !$0 { controller.presentedResultID = nil } }

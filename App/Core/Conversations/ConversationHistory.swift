@@ -9,10 +9,69 @@ public enum HistoryRemoval: Equatable, Sendable {
     case everything
 }
 
+/// Why the last attempt to write a conversation failed, as a category only. It never carries a path, a file name or any
+/// conversation text, so it is safe to show and to announce.
+public struct SaveProblem: Equatable, Sendable {
+    /// Ordered by how specific the advice is; the lowest value is shown when several conversations are affected.
+    public enum Category: Int, Comparable, Sendable {
+        case permission = 0
+        case diskFull = 1
+        case other = 2
+
+        public static func < (lhs: Category, rhs: Category) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    public let category: Category
+
+    public init(category: Category) {
+        self.category = category
+    }
+
+    public var title: String { "DeskMate couldn’t save this conversation on your Mac" }
+
+    /// Always says that nothing the person did is lost while the app is open; adds a category-specific line when known.
+    public var message: String {
+        var text = "Your changes are kept while the app is open."
+        switch category {
+        case .permission: text += " DeskMate isn’t allowed to write to its folder on this Mac."
+        case .diskFull: text += " There isn’t enough free space on this Mac."
+        case .other: break
+        }
+        return text
+    }
+
+    /// Maps a write error to a category. Looks at the error and the errors underneath it.
+    public static func category(of error: Error) -> Category {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain {
+            switch nsError.code {
+            case CocoaError.fileWriteNoPermission.rawValue, CocoaError.fileWriteVolumeReadOnly.rawValue: return .permission
+            case CocoaError.fileWriteOutOfSpace.rawValue: return .diskFull
+            default: break
+            }
+        }
+        if nsError.domain == NSPOSIXErrorDomain {
+            switch Int32(truncatingIfNeeded: nsError.code) {
+            case EACCES, EPERM, EROFS: return .permission
+            case ENOSPC, EDQUOT: return .diskFull
+            default: break
+            }
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return category(of: underlying)
+        }
+        return .other
+    }
+}
+
 /// The saved conversations: the Recent list, saving, deleting and clearing.
 ///
 /// Every disk operation runs in order on one background task, so a delete can never be overtaken by an earlier save,
 /// and a conversation that was deleted is not written again by a late save. Reads wait for pending writes first.
+///
+/// A write that fails is never silent: the conversation stays in memory exactly as it is, `saveProblem` is set, and the
+/// latest copy is kept (`unsavedIDs` names them) until a write succeeds. `retrySave()` and every later `save` try
+/// again. The previous complete file is untouched by a failed write (files are replaced atomically).
 ///
 /// Hook for the widget and panel package: call `onRemoval(_:)` once. The handler runs on the main actor, immediately
 /// when a conversation is deleted or history is cleared, before the files are gone, with what was removed. It is the
@@ -27,7 +86,16 @@ public final class ConversationHistory {
     public private(set) var isLoaded = false
     /// Files that Clear history could not remove, from the last time it ran.
     public private(set) var lastClearFailures = 0
+    /// Set while at least one conversation could not be written. Clears when every pending write has succeeded.
+    public private(set) var saveProblem: SaveProblem?
+    /// The conversations whose latest state is in memory only because the last write failed.
+    public private(set) var unsavedIDs: Set<UUID> = []
 
+    @ObservationIgnored private var unsaved: [UUID: ConversationRecord] = [:]
+    @ObservationIgnored private var failureCategories: [UUID: SaveProblem.Category] = [:]
+    @ObservationIgnored private var latestWrite: [UUID: Int] = [:]
+    @ObservationIgnored private var writeCounter = 0
+    @ObservationIgnored private let outcomes = WriteOutcomes()
     @ObservationIgnored private let storage: ConversationStorage
     @ObservationIgnored private var removalHandlers: [@MainActor (HistoryRemoval) -> Void] = []
     @ObservationIgnored private var deleted = Set<UUID>()
@@ -101,11 +169,63 @@ public final class ConversationHistory {
             summaries.append(summary)
         }
         summaries = Self.sorted(summaries)
-        queue.enqueue { storage in
-            do { try storage.save(record) } catch {
-                // Nothing to report from here: the previous complete file is still in place. The next save tries again.
+        write(record)
+        // Every save also retries conversations that could not be written earlier.
+        for (id, pending) in unsaved where id != record.id && !deleted.contains(id) {
+            write(pending)
+        }
+    }
+
+    /// Tries again to write every conversation that could not be saved. The notice clears when they all succeed.
+    public func retrySave() {
+        for (id, pending) in unsaved where !deleted.contains(id) {
+            write(pending)
+        }
+    }
+
+    /// True when the latest state of this conversation exists only in memory because its last write failed.
+    public func isUnsaved(_ id: UUID) -> Bool { unsavedIDs.contains(id) }
+
+    private func write(_ record: ConversationRecord) {
+        writeCounter += 1
+        let number = writeCounter
+        latestWrite[record.id] = number
+        let outcomes = self.outcomes
+        queue.enqueue { [weak self] storage in
+            var category: SaveProblem.Category?
+            do { try storage.save(record) } catch { category = SaveProblem.category(of: error) }
+            outcomes.append(WriteOutcomes.Outcome(record: record, number: number, failure: category))
+            Task { @MainActor in self?.applyWriteOutcomes() }
+        }
+    }
+
+    /// Applies finished writes on the main actor. Only the newest write of each conversation counts.
+    private func applyWriteOutcomes() {
+        for outcome in outcomes.take() {
+            let id = outcome.record.id
+            guard !deleted.contains(id), latestWrite[id] == outcome.number else { continue }
+            if let category = outcome.failure {
+                unsaved[id] = outcome.record
+                failureCategories[id] = category
+            } else {
+                unsaved[id] = nil
+                failureCategories[id] = nil
             }
         }
+        refreshSaveProblem()
+    }
+
+    private func refreshSaveProblem() {
+        let ids = Set(unsaved.keys)
+        if unsavedIDs != ids { unsavedIDs = ids }
+        let problem = failureCategories.values.min().map(SaveProblem.init(category:))
+        if saveProblem != problem { saveProblem = problem }
+    }
+
+    private func forgetUnsaved(_ id: UUID) {
+        unsaved[id] = nil
+        failureCategories[id] = nil
+        latestWrite[id] = nil
     }
 
     // MARK: Removing
@@ -113,6 +233,8 @@ public final class ConversationHistory {
     /// Deletes one conversation. Its summary leaves the list at once.
     public func delete(_ id: UUID) {
         deleted.insert(id)
+        forgetUnsaved(id)
+        refreshSaveProblem()
         summaries.removeAll { $0.id == id }
         removalHandlers.forEach { $0(.conversation(id)) }
         queue.enqueue { $0.delete(id) }
@@ -122,6 +244,11 @@ public final class ConversationHistory {
     /// person's own files or the library.
     public func clearAll() {
         deleted.formUnion(summaries.map(\.id))
+        deleted.formUnion(unsaved.keys)
+        unsaved = [:]
+        failureCategories = [:]
+        latestWrite = [:]
+        refreshSaveProblem()
         summaries = []
         notices = []
         cleared = true
@@ -143,6 +270,7 @@ public final class ConversationHistory {
     /// Waits until every queued write has finished. For tests and for quitting.
     public func waitForWrites() async {
         await queue.run { _ in }
+        applyWriteOutcomes()
     }
 
     // MARK: Helpers
@@ -158,6 +286,33 @@ public final class ConversationHistory {
         case .newerVersion:
             return "One saved conversation was written by a newer version of DeskMate, so this version left it aside unchanged. Your other conversations are not affected."
         }
+    }
+}
+
+/// Results of background writes, handed from the disk queue to the main actor.
+final class WriteOutcomes: @unchecked Sendable {
+    struct Outcome: Sendable {
+        let record: ConversationRecord
+        let number: Int
+        /// Nil when the write succeeded.
+        let failure: SaveProblem.Category?
+    }
+
+    private let lock = NSLock()
+    private var items: [Outcome] = []
+
+    func append(_ outcome: Outcome) {
+        lock.lock()
+        items.append(outcome)
+        lock.unlock()
+    }
+
+    func take() -> [Outcome] {
+        lock.lock()
+        defer { lock.unlock() }
+        let taken = items
+        items = []
+        return taken
     }
 }
 

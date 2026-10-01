@@ -29,6 +29,22 @@ extension ConversationController {
         ))
     }
 
+    /// Set while a conversation could not be written to disk. The conversation on screen is unaffected.
+    public var saveProblem: SaveProblem? { history?.saveProblem }
+
+    /// True when the conversation on screen exists only in memory because its last write failed.
+    public var currentConversationUnsaved: Bool { history?.isUnsaved(conversationID) ?? false }
+
+    /// Tries again to write what could not be saved. The conversation on screen is written from its current state, so
+    /// an edit made since the failure is included; other conversations that failed are retried from their kept copy.
+    public func retrySave() {
+        if currentConversationUnsaved {
+            persist()
+        } else {
+            history?.retrySave()
+        }
+    }
+
     /// Before the screen moves to another conversation: whatever is still streaming is settled as stopped and saved.
     func settleForDeparture() {
         generation?.cancel()
