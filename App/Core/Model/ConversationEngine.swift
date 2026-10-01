@@ -32,8 +32,32 @@ public protocol ConversationEngine: AnyObject {
     /// Checks the citations in an answer against the excerpts the model really received.
     /// Nil when the engine has no sources.
     func grounding(forAnswer text: String) -> GroundedAnswer?
+
+    /// Starts a fresh model context from the finished turns of a reopened conversation, keeping the most recent turns
+    /// that fit the context budget. Returns how many turns were kept (the newest ones); older ones are not remembered.
+    func restoreHistory(_ turns: [ConversationTurn]) async -> Int
+
+    /// Creates a brief or a task list from the visible conversation in a separate one-shot session, so the chat's own
+    /// context is not touched. Refuses, without sending anything, a conversation that does not fit.
+    func makeResult(_ request: ResultRequest) async throws -> ResultOutcome
 }
 
 public extension ConversationEngine {
     func prewarm() {}
+
+    /// Default: the budget check with the conservative estimator.
+    func restoreHistory(_ turns: [ConversationTurn]) async -> Int {
+        await HistoryRestore.run(engine: self, turns: turns, meter: EstimatingMeter())
+    }
+
+    /// Default: an engine with no structured generation cannot make a result, and says so.
+    func makeResult(_ request: ResultRequest) async throws -> ResultOutcome {
+        .refused(ChatFailure(
+            kind: .other,
+            title: "This engine can’t create results",
+            message: "Briefs and task lists need the on-device model.",
+            actions: [],
+            code: "resultUnsupported"
+        ))
+    }
 }

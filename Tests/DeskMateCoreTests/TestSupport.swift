@@ -38,6 +38,26 @@ final class ScriptedEngine: ConversationEngine {
 
     func grounding(forAnswer text: String) -> GroundedAnswer? { grounder?(text) }
 
+    /// When set, a restore keeps exactly this many of the newest turns (stands in for the budget decision).
+    var restoreKeeps: Int?
+    /// What `makeResult` returns, or throws. Test double only: it is never shown as model output.
+    var resultOutcome: ResultOutcome?
+    var resultError: (any Error)?
+    private(set) var resultRequests: [ResultRequest] = []
+
+    func restoreHistory(_ turns: [ConversationTurn]) async -> Int {
+        guard let restoreKeeps else { return await HistoryRestore.run(engine: self, turns: turns, meter: EstimatingMeter()) }
+        let kept = Array(turns.suffix(restoreKeeps))
+        reset(history: kept)
+        return kept.count
+    }
+
+    func makeResult(_ request: ResultRequest) async throws -> ResultOutcome {
+        resultRequests.append(request)
+        if let resultError { throw resultError }
+        return resultOutcome ?? .refused(ResultBudget.tooLong(kind: request.kind))
+    }
+
     func readiness() -> ModelReadinessSnapshot { snapshot }
 
     func contextUsage(adding prompt: String) async -> ContextUsage { usage }
