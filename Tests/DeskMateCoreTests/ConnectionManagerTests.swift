@@ -6,7 +6,7 @@ import Testing
 
 // MARK: - Test doubles (no network, no Keychain)
 
-private func makeTool(_ name: String, description: String = "Does a thing.", schema: Value? = nil) -> ConnectionTool {
+func makeTool(_ name: String, description: String = "Does a thing.", schema: Value? = nil) -> ConnectionTool {
     let input: Value =
         schema
         ?? .object([
@@ -20,7 +20,7 @@ private func makeTool(_ name: String, description: String = "Does a thing.", sch
     )
 }
 
-private final class FakeSession: ConnectionSession, @unchecked Sendable {
+final class FakeSession: ConnectionSession, @unchecked Sendable {
     private let lock = NSLock()
     private var _tools: [ConnectionTool]
     private var _calls: [String] = []
@@ -56,7 +56,7 @@ private final class FakeSession: ConnectionSession, @unchecked Sendable {
     }
 }
 
-private final class FakeFactory: ConnectionSessionFactory, @unchecked Sendable {
+final class FakeFactory: ConnectionSessionFactory, @unchecked Sendable {
     private let lock = NSLock()
     private var _sessions: [FakeSession] = []
     private var _tokens: [String?] = []
