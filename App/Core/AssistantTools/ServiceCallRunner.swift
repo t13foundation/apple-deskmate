@@ -251,6 +251,9 @@ final class ServiceCallRunner {
             return "The request to \(prepared.host) failed: \(failure.summary) Nothing was retrieved. Tell the user plainly that you could not get this information. Do not guess and do not invent a result."
 
         case .success(let output):
+            // The service answered, so it certainly received the request, whatever becomes of the answer. A failure that
+            // arrives without an answer (network, timeout, disconnect, HTTP error) stays "may have been sent".
+            mutate(record.id) { $0.responseReceived = true }
             let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if output.isError {
                 mutate(record.id) { $0.outcome = .failed("The service reported an error for this call.") }

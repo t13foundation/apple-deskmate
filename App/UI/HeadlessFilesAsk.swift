@@ -207,7 +207,7 @@ enum HeadlessFilesAsk {
             print("[\(source.id)] \(source.title)\(source.truncated ? " (result cut to fit)" : "")")
             if showExcerpts { print("    \"\(source.excerpt.replacingOccurrences(of: "\n", with: " "))\"") }
         }
-        let label = ModelProvenance.remoteLabel(hosts: answer.remoteHosts, usedServices: answer.usedServices)
+        let label = ModelProvenance.remoteLabel(reach: answer.remoteReach,usedServices: answer.usedServices)
         print("--- \(ModelProvenance.inferenceOnlyLabel) · \(label ?? "") ---")
     }
 

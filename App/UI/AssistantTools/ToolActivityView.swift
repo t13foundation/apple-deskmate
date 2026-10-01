@@ -9,10 +9,11 @@ struct RemoteConnectionLabel: View {
     var earlierSummaries: [String: String] = [:]
 
     var body: some View {
-        if let text = ModelProvenance.remoteLabel(hosts: message.remoteHosts, usedServices: message.usedServices) {
-            Label(text, systemImage: message.remoteHosts.isEmpty ? "network.slash" : "network")
+        let reach = message.remoteReach
+        if let text = ModelProvenance.remoteLabel(reach: reach, usedServices: message.usedServices) {
+            Label(text, systemImage: reach.isEmpty ? "network.slash" : "network")
                 .font(.dmCaption.weight(.semibold))
-                .foregroundStyle(message.remoteHosts.isEmpty ? Color.secondary : Color.dmWarning)
+                .foregroundStyle(reach.isEmpty ? Color.secondary : Color.dmWarning)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .accessibilityLabel(text)

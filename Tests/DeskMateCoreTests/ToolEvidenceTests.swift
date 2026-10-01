@@ -80,7 +80,7 @@ private func restarted(_ message: ChatMessage) throws -> (message: ChatMessage, 
         // No new send is claimed: no remote label, but where the earlier result came from.
         #expect(followUp.toolCalls.isEmpty && !followUp.usedServices)
         #expect(followUp.remoteHosts.isEmpty)
-        #expect(ModelProvenance.remoteLabel(hosts: followUp.remoteHosts, usedServices: followUp.usedServices) == nil)
+        #expect(ModelProvenance.remoteLabel(reach: followUp.remoteReach,usedServices: followUp.usedServices) == nil)
         #expect(followUp.earlierResultHosts() == [host])
         let label = try #require(ModelProvenance.earlierResultLabel(hosts: followUp.earlierResultHosts()))
         #expect(label == "Uses a result retrieved earlier from \(host)")

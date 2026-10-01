@@ -93,6 +93,12 @@ public extension ChatMessage {
         toolCalls.isEmpty ? ToolCallRecord.remoteHosts(inSummary: toolSummary) : ToolCallRecord.remoteHosts(of: toolCalls)
     }
 
+    /// The same hosts split by certainty: a reply came back, or the request only may have arrived. Live from the calls,
+    /// after a restart from the saved lines (old lines read as "may have").
+    var remoteReach: RemoteReach {
+        toolCalls.isEmpty ? ToolCallRecord.remoteReach(inSummary: toolSummary) : ToolCallRecord.remoteReach(of: toolCalls)
+    }
+
     /// True when the model asked for any service call, even if it was declined or refused.
     var usedServices: Bool { !toolCalls.isEmpty || toolSummary != nil }
 }

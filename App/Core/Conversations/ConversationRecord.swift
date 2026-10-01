@@ -11,10 +11,11 @@ import Foundation
 ///   summary in `StoredMessage.toolSummary`, such as "Asked Project Lumen: get_project_status (approved)". Never the
 ///   arguments' raw JSON, never the response body, never the server's headers. The wording is part of the contract:
 ///   a line starting "Asked " (after an optional "[M1] " label) means a request was or may have been sent and names the
-///   host; "Not sent to ", "Declined " and the like mean nothing left this Mac. A failure after approval is written
-///   "Asked ... (approved, failed: ...)" when it may have been sent and "Not sent to ... (approved, failed before
-///   sending: ...)" when it was rejected first. Lines saved before that distinction have only the "Asked ..." form for
-///   every failure; they still decode and display unchanged and keep the meaning "possibly sent". No version change.
+///   host; "Not sent to ", "Declined " and the like mean nothing left this Mac. An "Asked " line carries how sure that is:
+///   "(approved)" or "...; reply received)" means the service answered; "...; may have been sent)" means a failure,
+///   stop or lost connection left it uncertain; "Not sent to ... (approved, failed before sending: ...)" means it was
+///   rejected first. Lines saved before the "; may have been sent" marker end "(approved, failed: ...)" or "(approved,
+///   stopped)"; they still decode and display unchanged and keep the meaning "possibly sent". No version change.
 /// - A new optional field may be added without changing `formatVersion`; older records simply lack it. Anything that
 ///   changes the meaning of an existing field or removes one raises `formatVersion`, and a record with a higher
 ///   version than this build knows is set aside, never rewritten.

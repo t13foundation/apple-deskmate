@@ -32,11 +32,18 @@ public struct ModelProvenance: Equatable, Sendable {
     public static let inferenceOnlyLabel = "Apple on-device model"
 
     /// The separate label for an answer that involved connected services, or nil when none did.
-    /// `hosts` are the places a request may have reached (empty when every call was declined or refused).
-    public static func remoteLabel(hosts: [String], usedServices: Bool) -> String? {
-        if !hosts.isEmpty { return "Remote connection: sent data to \(hosts.joined(separator: ", "))" }
-        if usedServices { return "Remote connection: nothing was sent" }
-        return nil
+    /// `reach` holds the places a request may have reached (empty when every call was declined or refused), split by
+    /// certainty. "Sent data" is said only for a host that answered; a failure, stop or lost connection after sending
+    /// says a request "may have reached" it, because nothing proves it did or did not.
+    public static func remoteLabel(reach: RemoteReach, usedServices: Bool) -> String? {
+        let confirmed = reach.confirmed.joined(separator: ", ")
+        let uncertain = reach.uncertain.joined(separator: ", ")
+        switch (reach.confirmed.isEmpty, reach.uncertain.isEmpty) {
+        case (false, true): return "Remote connection: sent data to \(confirmed)"
+        case (true, false): return "Remote connection: a request may have reached \(uncertain)"
+        case (false, false): return "Remote connection: sent data to \(confirmed); a request may have reached \(uncertain)"
+        case (true, true): return usedServices ? "Remote connection: nothing was sent" : nil
+        }
     }
 
     /// For an answer that cites a service result retrieved in an earlier answer: where that result came from. It claims

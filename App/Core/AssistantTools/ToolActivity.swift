@@ -40,8 +40,12 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
     public var outcome: Outcome
     /// The label the model may cite, e.g. "M1". Set only when the call returned a result.
     public var label: String?
-    /// True once a request may have left this Mac. Never true for a denied or refused call.
+    /// True once a request may have left this Mac. Never true for a denied or refused call. It means "may have", not
+    /// "did": `delivery` says whether a reply proves it.
     public var sentRequest: Bool
+    /// True when the service answered, even if the answer was an error or could not be used. Only then is it certain
+    /// that the request reached the service. A failure, a stop or a lost connection leaves this false.
+    public var responseReceived: Bool
 
     public init(
         id: UUID = UUID(),
@@ -51,7 +55,8 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
         arguments: [ToolCallArgument] = [],
         outcome: Outcome,
         label: String? = nil,
-        sentRequest: Bool = false
+        sentRequest: Bool = false,
+        responseReceived: Bool = false
     ) {
         self.id = id
         self.connectionName = connectionName
@@ -61,6 +66,22 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
         self.outcome = outcome
         self.label = label
         self.sentRequest = sentRequest
+        self.responseReceived = responseReceived
+    }
+
+    /// How sure DeskMate is that this call's request reached the service. Three states, never merged.
+    public enum Delivery: Equatable, Sendable {
+        /// Nothing left this Mac.
+        case notSent
+        /// The request may have reached the service, but no reply proves it (failed, stopped or disconnected after sending).
+        case mayHaveReached
+        /// The service answered, so it did receive the request.
+        case replyReceived
+    }
+
+    public var delivery: Delivery {
+        guard sentRequest else { return .notSent }
+        return outcome == .succeeded || responseReceived ? .replyReceived : .mayHaveReached
     }
 
     public var isFinished: Bool {
@@ -76,7 +97,12 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
         case .awaitingApproval: "waiting for you"
         case .running: "approved, running"
         case .succeeded: "approved"
-        case .failed: sentRequest ? "approved, failed" : "approved, not sent"
+        case .failed:
+            switch delivery {
+            case .notSent: "approved, not sent"
+            case .mayHaveReached: "approved, failed, may have been sent"
+            case .replyReceived: "approved, failed"
+            }
         case .denied: "denied"
         case .notRun: "not run"
         case .cancelled: sentRequest ? "approved, stopped" : "stopped"
@@ -86,7 +112,8 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
     /// The plain-language detail line under the status, when there is one.
     public var detail: String? {
         switch outcome {
-        case .failed(let reason), .notRun(let reason): reason
+        case .failed(let reason): delivery == .mayHaveReached ? "\(reason) The service may have received the request." : reason
+        case .notRun(let reason): reason
         case .denied: "You declined. Nothing was sent."
         case .cancelled: sentRequest ? "Stopped. The service may already have received the request." : "Stopped before anything was sent."
         default: nil
@@ -95,13 +122,16 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
 
     /// The single visible line saved with the answer. It carries no inputs, no response and no secrets.
     ///
-    /// Saved wording, which `remoteHosts(inSummary:)` reads back after a restart:
-    /// - "Asked ..." means a request was sent or may have been sent, so its host counts as reached. A call that was
-    ///   approved and then failed after sending is "Asked ... (approved, failed: <reason>)".
-    /// - "Not sent to ..." means nothing left this Mac (refused, stopped before sending, or approved but rejected before
-    ///   any request: "Not sent to ... (approved, failed before sending: <reason>)"). Its host never counts.
-    /// Lines saved by earlier versions describe every failure as "Asked ... (approved, failed: ...)"; they keep that
-    /// meaning (possibly sent), because the old text cannot tell the two cases apart. They still decode and display.
+    /// Saved wording, which `remoteReach(inSummary:)` reads back after a restart. Three states:
+    /// - Reply received (certain): "Asked ... (approved)", or "Asked ... (approved, failed: <reason>; reply received)"
+    ///   when the service answered with an error or an unusable reply.
+    /// - Possibly sent (uncertain): "Asked ... (approved, failed: <reason>; may have been sent)" and
+    ///   "Asked ... (approved, stopped; may have been sent)": the request may have reached the host, nothing proves it.
+    /// - Not sent: "Not sent to ..." (refused, stopped before sending, or approved but rejected before any request:
+    ///   "Not sent to ... (approved, failed before sending: <reason>)"), and "Declined ...". Its host never counts.
+    /// Lines saved by earlier versions end "(approved, failed: <reason>)" or "(approved, stopped)" with no marker. They
+    /// still decode and display unchanged, and are read conservatively as possibly sent: the old text cannot tell an
+    /// answered failure from a lost connection. An old "(approved)" line was a success and stays certain.
     public var summaryLine: String {
         let place = "\(Self.line(connectionName, limit: 40)) (\(Self.line(host, limit: 60))): \(Self.line(toolName, limit: 40))"
         let tag = label.map { "[\($0)] " } ?? ""
@@ -110,17 +140,26 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
             return "\(tag)Asked \(place) (approved)"
         case .failed(let reason):
             let shortReason = Self.line(reason, limit: 80)
-            return sentRequest
-                ? "Asked \(place) (approved, failed: \(shortReason))"
-                : "Not sent to \(place) (approved, failed before sending: \(shortReason))"
+            switch delivery {
+            case .notSent: return "Not sent to \(place) (approved, failed before sending: \(shortReason))"
+            case .mayHaveReached: return "Asked \(place) (approved, failed: \(shortReason); \(Self.mayHaveBeenSentMarker))"
+            case .replyReceived: return "Asked \(place) (approved, failed: \(shortReason); \(Self.replyReceivedMarker))"
+            }
         case .denied:
             return "Declined \(place) (denied, nothing sent)"
         case .notRun(let reason):
             return "Not sent to \(place) (\(Self.line(reason, limit: 80)))"
         case .cancelled:
-            return sentRequest ? "Asked \(place) (approved, stopped)" : "Not sent to \(place) (stopped)"
+            switch delivery {
+            case .notSent: return "Not sent to \(place) (stopped)"
+            case .mayHaveReached: return "Asked \(place) (approved, stopped; \(Self.mayHaveBeenSentMarker))"
+            case .replyReceived: return "Asked \(place) (approved, stopped; \(Self.replyReceivedMarker))"
+            }
         }
     }
+
+    static let mayHaveBeenSentMarker = "may have been sent"
+    static let replyReceivedMarker = "reply received"
 
     private static func line(_ text: String, limit: Int) -> String {
         PlainText.sanitizeLine(text, limit: limit)
@@ -155,12 +194,37 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
 
     /// Hosts named by saved summary lines that say a request was made ("Asked ...").
     public static func remoteHosts(inSummary summary: String?) -> [String] {
-        guard let summary else { return [] }
-        var seen: [String] = []
-        for line in summary.split(separator: "\n") {
-            if let host = askedHost(inLine: String(line)), !seen.contains(host) { seen.append(host) }
+        remoteReach(inSummary: summary).hosts
+    }
+
+    /// Hosts of the calls of one answer, split by how sure it is that the request arrived.
+    public static func remoteReach(of calls: [ToolCallRecord]) -> RemoteReach {
+        var reach = RemoteReach()
+        for call in calls {
+            switch call.delivery {
+            case .notSent: break
+            case .mayHaveReached: reach.add(call.host, confirmed: false)
+            case .replyReceived: reach.add(call.host, confirmed: true)
+            }
         }
-        return seen
+        return reach
+    }
+
+    /// The same split, read back from saved lines. Only the line's wording is used, see `summaryLine`.
+    public static func remoteReach(inSummary summary: String?) -> RemoteReach {
+        var reach = RemoteReach()
+        guard let summary else { return reach }
+        for line in summary.split(separator: "\n") {
+            let text = String(line)
+            if let host = askedHost(inLine: text) { reach.add(host, confirmed: isReplyReceived(line: text)) }
+        }
+        return reach
+    }
+
+    /// True for an "Asked ..." line that records a reply: a success, or a failure the service answered. Every other
+    /// "Asked ..." line, including every line written by earlier versions, is only "possibly sent".
+    static func isReplyReceived(line: String) -> Bool {
+        line.hasSuffix("(approved)") || line.hasSuffix("; \(replyReceivedMarker))")
     }
 
     /// The host of one saved "Asked ..." line, or nil for any other kind of line ("Not sent to", "Declined").
@@ -185,6 +249,29 @@ public struct ToolCallRecord: Identifiable, Equatable, Sendable {
     /// Saved lines that carry a result label, in order: the results the model was given in an answer.
     static func labelledLines(in lines: [String]) -> [(label: String, line: String)] {
         lines.compactMap { line in label(inSummaryLine: line).map { ($0, line) } }
+    }
+}
+
+/// The hosts an answer's requests may have reached, split by certainty. A host with any answered call is confirmed.
+public struct RemoteReach: Equatable, Sendable {
+    /// A reply came back, so the service received the request.
+    public private(set) var confirmed: [String] = []
+    /// The request may have arrived but nothing proves it, and no other call to the same host got a reply.
+    public private(set) var uncertain: [String] = []
+
+    public init() {}
+
+    public var isEmpty: Bool { confirmed.isEmpty && uncertain.isEmpty }
+    /// Every host a request may have reached, confirmed first.
+    public var hosts: [String] { confirmed + uncertain }
+
+    mutating func add(_ host: String, confirmed isConfirmed: Bool) {
+        if isConfirmed {
+            uncertain.removeAll { $0 == host }
+            if !confirmed.contains(host) { confirmed.append(host) }
+        } else if !confirmed.contains(host), !uncertain.contains(host) {
+            uncertain.append(host)
+        }
     }
 }
 

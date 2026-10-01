@@ -381,7 +381,7 @@ private final class Rig {
         let waiting = ToolCallRecord(connectionName: "Lumen", host: "h", toolName: "t", outcome: .awaitingApproval)
         let running = ToolCallRecord(connectionName: "Lumen", host: "h", toolName: "t", outcome: .running, sentRequest: true)
         let lines = ToolCallRecord.summary(of: [waiting, running])?.split(separator: "\n").map(String.init) ?? []
-        #expect(lines == ["Not sent to Lumen (h): t (stopped)", "Asked Lumen (h): t (approved, stopped)"])
+        #expect(lines == ["Not sent to Lumen (h): t (stopped)", "Asked Lumen (h): t (approved, stopped; may have been sent)"])
         #expect(ToolCallRecord.summary(of: []) == nil)
     }
 
@@ -390,9 +390,8 @@ private final class Rig {
         let message = ChatMessage(role: .assistant, text: "I could not check.", toolCalls: [declined])
         #expect(message.usedServices)
         #expect(message.remoteHosts.isEmpty)
-        #expect(ModelProvenance.remoteLabel(hosts: message.remoteHosts, usedServices: message.usedServices) == "Remote connection: nothing was sent")
-        #expect(ModelProvenance.remoteLabel(hosts: ["h"], usedServices: true) == "Remote connection: sent data to h")
-        #expect(ModelProvenance.remoteLabel(hosts: [], usedServices: false) == nil)
+        #expect(ModelProvenance.remoteLabel(reach: message.remoteReach, usedServices: message.usedServices) == "Remote connection: nothing was sent")
+        #expect(ModelProvenance.remoteLabel(reach: RemoteReach(), usedServices: false) == nil)
     }
 
     @Test func aResultIsFencedAsDataAndCannotCloseTheFence() {
@@ -477,14 +476,14 @@ private final class BrokenFactory: ConnectionSessionFactory, @unchecked Sendable
 
         let message = ChatMessage(role: .assistant, text: "I could not check.", toolCalls: rig.runner.records)
         #expect(message.remoteHosts.isEmpty, "live")
-        #expect(ModelProvenance.remoteLabel(hosts: message.remoteHosts, usedServices: message.usedServices) == "Remote connection: nothing was sent")
+        #expect(ModelProvenance.remoteLabel(reach: message.remoteReach, usedServices: message.usedServices) == "Remote connection: nothing was sent")
 
         let restored = try reopened(message)
         #expect(restored.toolCalls.isEmpty, "only the saved line is left after a restart")
         #expect(restored.toolActivityLines.count == 1)
         #expect(restored.toolActivityLines[0] == record.summaryLine)
         #expect(restored.remoteHosts.isEmpty, "after the restart")
-        #expect(ModelProvenance.remoteLabel(hosts: restored.remoteHosts, usedServices: restored.usedServices) == "Remote connection: nothing was sent")
+        #expect(ModelProvenance.remoteLabel(reach: restored.remoteReach, usedServices: restored.usedServices) == "Remote connection: nothing was sent")
     }
 
     @Test func aCallThatWasSentAndThenFailedStillShowsTheHostLiveAndAfterARestart() async throws {
@@ -503,12 +502,18 @@ private final class BrokenFactory: ConnectionSessionFactory, @unchecked Sendable
             return
         }
         #expect(record.sentRequest)
-        #expect(record.statusWord == "approved, failed")
+        #expect(record.delivery == .mayHaveReached, "a lost connection proves nothing about delivery")
+        #expect(record.statusWord == "approved, failed, may have been sent")
         #expect(record.summaryLine.hasPrefix("Asked Lumen (127.0.0.1:8765): allowed (approved, failed: "))
+        #expect(record.summaryLine.hasSuffix("; may have been sent)"))
 
         let message = ChatMessage(role: .assistant, text: "It failed.", toolCalls: rig.runner.records)
         #expect(message.remoteHosts == ["127.0.0.1:8765"], "live")
         #expect(try reopened(message).remoteHosts == ["127.0.0.1:8765"], "after the restart")
+        let uncertain = "Remote connection: a request may have reached 127.0.0.1:8765"
+        #expect(ModelProvenance.remoteLabel(reach: message.remoteReach, usedServices: true) == uncertain, "live")
+        let restored = try reopened(message)
+        #expect(ModelProvenance.remoteLabel(reach: restored.remoteReach, usedServices: true) == uncertain, "after the restart")
     }
 
     @Test func oldSavedFailureLinesStillDecodeAndKeepTheirMeaningOfPossiblySent() {
@@ -518,6 +523,74 @@ private final class BrokenFactory: ConnectionSessionFactory, @unchecked Sendable
         let stored = StoredMessage(id: UUID(), role: .assistant, text: "x", createdAt: Date(timeIntervalSince1970: 1), status: .complete, toolSummary: old)
         #expect(stored.chatMessage.toolActivityLines == [old])
         #expect(stored.chatMessage.remoteHosts == ["127.0.0.1:8765"])
+        #expect(
+            ModelProvenance.remoteLabel(reach: stored.chatMessage.remoteReach, usedServices: true)
+                == "Remote connection: a request may have reached 127.0.0.1:8765",
+            "an old failure line is read conservatively as possibly sent, never as certain"
+        )
+        let oldStopped = "Asked Lumen (h): t (approved, stopped)"
+        #expect(ToolCallRecord.remoteReach(inSummary: oldStopped).uncertain == ["h"])
+        let oldSuccess = "[M1] Asked Lumen (h): t (approved)"
+        #expect(ToolCallRecord.remoteReach(inSummary: oldSuccess).confirmed == ["h"], "an old success line was always an answered call")
+    }
+
+    // MARK: Three states, live and reopened
+
+    private func message(_ calls: [ToolCallRecord]) -> ChatMessage {
+        ChatMessage(role: .assistant, text: "Answer.", toolCalls: calls)
+    }
+
+    private func call(_ outcome: ToolCallRecord.Outcome, sent: Bool, replied: Bool = false, host: String = "h") -> ToolCallRecord {
+        ToolCallRecord(connectionName: "Lumen", host: host, toolName: "t", outcome: outcome, sentRequest: sent, responseReceived: replied)
+    }
+
+    @Test func aSuccessSaysDataWasSentLiveAndAfterARestart() throws {
+        let live = message([call(.succeeded, sent: true)])
+        #expect(live.remoteReach.confirmed == ["h"])
+        #expect(ModelProvenance.remoteLabel(reach: live.remoteReach, usedServices: true) == "Remote connection: sent data to h")
+        let restored = try reopened(live)
+        #expect(ModelProvenance.remoteLabel(reach: restored.remoteReach, usedServices: true) == "Remote connection: sent data to h")
+    }
+
+    @Test func aFailureAfterAnAnswerIsStillCertainAndOneWithoutAnAnswerIsNot() throws {
+        let answeredError = message([call(.failed("The service reported an error for this call."), sent: true, replied: true)])
+        #expect(answeredError.toolCalls[0].delivery == .replyReceived)
+        #expect(answeredError.toolActivityLines == ["Asked Lumen (h): t (approved, failed: The service reported an error for this call.; reply received)"])
+        let restoredAnswered = try reopened(answeredError)
+        #expect(ModelProvenance.remoteLabel(reach: restoredAnswered.remoteReach, usedServices: true) == "Remote connection: sent data to h")
+
+        let lost = message([call(.failed("The connection to h was lost."), sent: true)])
+        #expect(lost.toolActivityLines == ["Asked Lumen (h): t (approved, failed: The connection to h was lost.; may have been sent)"])
+        let restoredLost = try reopened(lost)
+        #expect(ModelProvenance.remoteLabel(reach: restoredLost.remoteReach, usedServices: true) == "Remote connection: a request may have reached h")
+    }
+
+    @Test func aStopAfterSendingIsUncertainLiveAndAfterARestart() throws {
+        let stopped = message([call(.cancelled, sent: true)])
+        #expect(ModelProvenance.remoteLabel(reach: stopped.remoteReach, usedServices: true) == "Remote connection: a request may have reached h")
+        // A call still running when the answer is saved is written as stopped, with the same uncertainty.
+        let saved = StoredMessage(message([call(.running, sent: true)]))
+        #expect(saved.toolSummary == "Asked Lumen (h): t (approved, stopped; may have been sent)")
+        #expect(ModelProvenance.remoteLabel(reach: saved.chatMessage.remoteReach, usedServices: true) == "Remote connection: a request may have reached h")
+    }
+
+    @Test func nothingSentStaysNothingSentLiveAndAfterARestart() throws {
+        let refused = message([call(.failed("Turned off."), sent: false), call(.denied, sent: false, host: "h2"), call(.cancelled, sent: false, host: "h3")])
+        #expect(refused.remoteReach.isEmpty)
+        #expect(ModelProvenance.remoteLabel(reach: refused.remoteReach, usedServices: true) == "Remote connection: nothing was sent")
+        let restored = try reopened(refused)
+        #expect(restored.remoteReach.isEmpty)
+        #expect(ModelProvenance.remoteLabel(reach: restored.remoteReach, usedServices: true) == "Remote connection: nothing was sent")
+    }
+
+    @Test func aHostThatAnsweredOnceIsConfirmedAndAnotherUncertainHostIsNamedSeparately() {
+        let mixed = message([call(.cancelled, sent: true), call(.succeeded, sent: true), call(.failed("Timed out."), sent: true, host: "h2")])
+        #expect(mixed.remoteReach.confirmed == ["h"])
+        #expect(mixed.remoteReach.uncertain == ["h2"])
+        #expect(
+            ModelProvenance.remoteLabel(reach: mixed.remoteReach, usedServices: true)
+                == "Remote connection: sent data to h; a request may have reached h2"
+        )
     }
 
     @Test func notSentLinesNeverCountEvenWhenTheirTextMentionsAsking() {
