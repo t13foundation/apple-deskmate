@@ -1,6 +1,9 @@
 # macOS / Xcode
 .DS_Store
 .build/
+.swiftpm/
+DeskMate.xcworkspace/xcshareddata/swiftpm/
+DeskMate.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 DerivedData/
 xcuserdata/
 *.xcuserstate
