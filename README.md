@@ -40,10 +40,10 @@ Conversations and selected-file indexes stay in DeskMate’s local container. Th
 ## Known limitations
 
 - The local model can misread sources, omit facts or make incorrect claims. Citations show the excerpts it received; they do not guarantee every sentence is supported. A follow-up may help.
-- Retrieval is keyword-based. Image-only PDFs, OCR, DOCX and web pages are not supported. The library supports up to 200 files, 10 MB and 50 pages per file; a question can attach up to five files.
+- Retrieval is keyword-based. Image-only PDFs, OCR, DOCX and web pages are not supported. The library supports up to 200 files. Text/Markdown files are limited to 1 MB; PDFs to 10 MB and 50 pages. A question can attach up to five files.
 - The model has a 4096-token context window on the verified Mac. Older turns may remain visible outside its restored memory, and attachments are not reattached by retry after restart.
 - MCP compatibility is limited to the supported Streamable HTTP and input-schema subset. This is not a claim of compatibility with every server.
-- The complete desktop/accessibility acceptance and release remain in progress. See [PR #13](https://github.com/t13foundation/apple-deskmate/pull/13) and the [Project](https://github.com/orgs/t13foundation/projects/10) for the current state.
+- This is a locally signed prototype, not a notarized installer or an App Store release. See the [verification runbook](docs/local-prototype.md) for tested behavior and the limits of that evidence.
 
 ## Source and verification
 
