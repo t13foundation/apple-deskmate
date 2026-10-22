@@ -8,6 +8,7 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .executable(name: "DeskMate", targets: ["DeskMate"]),
+        .executable(name: "DeskMateWidget", targets: ["DeskMateWidget"]),
         .executable(name: "DeskMateMCPFixture", targets: ["DeskMateMCPFixture"]),
         .executable(name: "DeskMateMCPCheck", targets: ["DeskMateMCPCheck"]),
     ],
@@ -32,6 +33,18 @@ let package = Package(
         .target(name: "DeskMateShared", path: "Shared"),
         // SwiftUI application.
         .executableTarget(name: "DeskMate", dependencies: ["DeskMateCore", "DeskMateShared"], path: "App/UI"),
+        // WidgetKit extension. Reads only the generic snapshot (DeskMateShared); no model, network or conversation code.
+        // Built as an extension executable: application-extension-safe APIs only, entered through _NSExtensionMain
+        // instead of main. scripts/build-app.sh places it in the app as Contents/PlugIns/DeskMateWidget.appex.
+        .executableTarget(
+            name: "DeskMateWidget",
+            dependencies: ["DeskMateShared"],
+            path: "Widget",
+            swiftSettings: [.unsafeFlags(["-application-extension"])],
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-application_extension", "-Xlinker", "-e", "-Xlinker", "_NSExtensionMain"]),
+            ]
+        ),
         // Synthetic loopback MCP server (library), shared by the fixture executable and the tests.
         .target(
             name: "DeskMateMCPFixtureKit",

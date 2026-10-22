@@ -10,7 +10,9 @@ struct RootView: View {
     let history: ConversationHistory
     let approvals: ToolApprovalBroker
     @Bindable var navigation: AppNavigation
+    let desktop: DesktopAccess
 
+    @Environment(\.openWindow) private var openWindow
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var wasCompact: Bool?
 
@@ -69,6 +71,10 @@ struct RootView: View {
         .environment(navigation)
         // A connected-service call waits here for a person's answer, whichever section is open.
         .toolApprovalSheet(broker: approvals)
+        // While the compact panel is on screen it presents the conversation's sheets; this window steps back.
+        .environment(\.presentsConversationSheets, !desktop.panel.isVisible)
+        .background(MainWindowReader { desktop.registerMainWindow($0) })
+        .onOpenURL { desktop.open(url: $0) }
         .frame(minWidth: DS.Layout.windowMinWidth, minHeight: DS.Layout.windowMinHeight)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             // A narrow window starts with the sidebar hidden. Only crossing the threshold changes it,
@@ -90,7 +96,11 @@ struct RootView: View {
             // An excerpt belongs to the conversation it was cited in.
             navigation.closeViewer()
         }
-        .task { controller.prewarmIfReady() }
+        .task {
+            // The panel and the menu bar can reopen this window later; they need a way to ask SwiftUI for it.
+            desktop.setOpenMainWindowAction { openWindow(id: "main") }
+            controller.prewarmIfReady()
+        }
         .task { await library.load() }
         .task { await history.load() }
     }

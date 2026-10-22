@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The widget is sandboxed and asks for nothing else: no network, no file access, no user-selected files.
+	     It only reads the small generic snapshot the app writes. The application-groups entitlement that
+	     lets it reach that snapshot is added by scripts/build-app.sh when a Team ID is given. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+</dict>
+</plist>

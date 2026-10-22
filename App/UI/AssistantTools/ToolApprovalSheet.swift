@@ -15,11 +15,13 @@ extension DS.Layout {
 /// it takes a click, or Tab to it and Space. The inputs scroll in the middle; the title and the buttons stay in view.
 struct ToolApprovalModifier: ViewModifier {
     let broker: ToolApprovalBroker
+    /// With the main window and the compact panel both on screen, only one of them presents the sheet.
+    @Environment(\.presentsConversationSheets) private var presents
 
     func body(content: Content) -> some View {
         content.sheet(
             item: Binding(
-                get: { broker.pending },
+                get: { presents ? broker.pending : nil },
                 // The sheet cannot be dismissed from outside; only the buttons below answer a request.
                 set: { _ in }
             )

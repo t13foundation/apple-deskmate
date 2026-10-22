@@ -32,3 +32,7 @@ Examples: “What would you like to work on?” / “Add material” / “Create
 ## Acceptance
 
 A nonprogrammer can complete the main task without instructions. Validate real screenshot composition at compact and expanded sizes in light/dark themes, tab order, visible focus, VoiceOver labels, text wrapping, and reduced motion/transparency. Visual quality is part of each delivery, starting with the first slice.
+
+## App icon
+
+The approved app icon is the canonical layered [AppIcon.icon](../assets/app-icon/AppIcon.icon): an ivory document/conversation silhouette on T13 violet, a lilac reverse-facing fold and a neutral gray shadow on the ivory face. Preserve the three unmasked vector layers; the system supplies the outer shape and dynamic rendering. Masked preview PNGs are review/marketing assets, never production asset-catalog inputs. The local bundler compiles this source with actool; CLT-only packaging explicitly uses the static ICNS fallback.

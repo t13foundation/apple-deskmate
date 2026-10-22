@@ -6,12 +6,15 @@ struct SettingsView: View {
     let history: ConversationHistory
     let controller: ConversationController
     let library: LibraryStore
+    let desktop: DesktopAccess
 
     @State private var confirmingHistory = false
     @State private var confirmingLibrary = false
 
     var body: some View {
         Form {
+            ShortcutSettingsSection(desktop: desktop)
+
             Section("Saved on this Mac") {
                 Text("DeskMate keeps your conversations so you can pick them up again: your questions, its answers, the source excerpts those answers showed, the names (not the contents) of files you attached, and the briefs or task lists you created.")
                     .fixedSize(horizontal: false, vertical: true)
@@ -56,7 +59,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 520)
+        .frame(width: 520, height: 640)
         .confirmationDialog("Clear conversation history?", isPresented: $confirmingHistory, titleVisibility: .visible) {
             Button("Clear history", role: .destructive) {
                 controller.clearHistory()
