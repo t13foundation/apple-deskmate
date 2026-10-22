@@ -168,6 +168,8 @@ bash scripts/build-app.sh --sign "<Apple Development identity>" --team <TEAMID>
 
 `--team` is optional and only adds the App Group for the widget snapshot (see Desktop access).
 
+The approved app icon is the layered `assets/app-icon/AppIcon.icon`: an ivory document/conversation shape on T13 violet, with a lilac folded reverse and a neutral gray shadow. The bundler compiles this source with Apple's `actool` when full Xcode is selected, imports only its icon metadata, and signs the resulting resources with the app. It refuses to overwrite an existing `Assets.car`; future catalogs must be compiled together. With Command Line Tools alone it explicitly uses `assets/app-icon/fallback/AppIcon.icns`, which is static and does not provide dynamic clear/tinted appearances. Masked `previews/` and precompiled reference resources are review material, not build inputs. The supplied kit's checksums and artwork QA are in `assets/app-icon/`; they do not certify the installed application.
+
 For development, `swift run DeskMate`, `swift run DeskMate --diagnose-model` and `swift run DeskMate --ask "…"` run the same entry points without assembling the app bundle.
 
 Headless file questions use the real on-device model with an in-memory library (nothing is saved, no bookmarks are created). They print to your terminal because you asked for it, and never print document text other than cited excerpts when `--show-excerpts` is given:

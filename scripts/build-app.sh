@@ -60,6 +60,7 @@ cp "$bin_dir/DeskMate" "$app/Contents/MacOS/DeskMate"
 cp "$bin_dir/DeskMateWidget" "$appex/Contents/MacOS/DeskMateWidget"
 cp "$root/App/Resources/Info.plist" "$app/Contents/Info.plist"
 cp "$root/App/Resources/Widget-Info.plist" "$appex/Contents/Info.plist"
+bash "$root/scripts/package-icon.sh" "$app"
 
 # Stamp the build with the short commit so a running app can be matched to its source.
 revision="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"

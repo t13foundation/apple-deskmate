@@ -1,0 +1,67 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.43922,0.14118,0.78039,1.00000"
+  },
+  "groups": [
+    {
+      "name": "Conversation and folded page",
+      "layers": [
+        {
+          "image-name": "03-paper-fold.svg",
+          "name": "03-paper-fold",
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.78039,0.67451,0.91373,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "image-name": "02-fold-under.svg",
+          "name": "02-fold-under",
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.72941,0.71765,0.69412,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "image-name": "01-conversation.svg",
+          "name": "01-conversation",
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.94510,0.93725,0.91373,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.25
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "extended-srgb:0.14118,0.07059,0.22353,1.00000"
+      }
+    }
+  ]
+}
