@@ -204,7 +204,7 @@ The app logs content-free desktop-opening timings; it does not log document or c
 
 macOS 26 or later, an Apple Intelligence-compatible Mac, and an available on-device SystemLanguageModel. Swift, SwiftUI, Foundation Models, WidgetKit, App Intents, and the official MCP Swift SDK. No paid model API or macOS 27 upgrade is required for the initial scope.
 
-Turn on Apple Intelligence in System Settings before asking a question; the app opens that pane on request but never changes the setting. Apple Intelligence availability and English support are checked at runtime. Xcode 27.0 is used with the macOS 26 deployment target. App Group access, Apple Development signing and extension registration have been verified on the target Mac, and Marek confirmed placement of both widget sizes. The remaining desktop and complete-prototype checks are tracked in Issues #5, #8 and #9. Possession of a paid Developer Program membership is not assumed.
+Turn on Apple Intelligence in System Settings before asking a question; the app opens that pane on request but never changes the setting. Apple Intelligence availability and English support are checked at runtime. Xcode 27.0 is used with the macOS 26 deployment target. App Group access, Apple Development signing and extension registration have been verified on the target Mac, and Marek confirmed placement of both widget sizes. The completed desktop and prototype acceptance is recorded below and linked from Issues #5, #8 and #9. Possession of a paid Developer Program membership is not assumed.
 
 Use synthetic English samples for demonstrations. MCP can transmit data outside the Mac; connecting a server is a separate trust decision.
 
@@ -221,6 +221,7 @@ Performance observations on the Apple M5 / 16 GB / macOS 26.6.1 target, model re
 | Operation | Observation |
 | --- | --- |
 | Warm shortcut open | 5–33 ms to ready composer, from the real content-free DesktopAccess log. |
+| Cold physical widget open | 770 ms to ready composer in the content-free DesktopAccess log, from a new process after the host confirmed normal termination; Marek clicked the small widget and confirmed the panel opened. |
 | Cold deep-link open | 4483 ms after confirmed app-process exit; this was CLI dispatch, not a physical widget click. |
 | English knowledge answer | No answer text at the last observation around 1.6 s; the complete correct two-sentence answer was visible by 7.244 s. The exact first-token instant was not isolated; these are observation bounds. |
 | Native file extraction/chunking/index | 86.694 ms over the repository synthetic library: 8 files / 73,394 input bytes, 6 indexed, 2 skipped, 15 chunks. A release-optimized host harness compiled the actual unchanged DocumentReader, Chunker, LibraryTypes and SearchIndex sources. This excludes bookmark/UI and model overhead. |
