@@ -51,3 +51,7 @@ Conversations and selected-file indexes stay in DeskMate’s local container. Th
 - [Product specification](docs/specyfikacja-produktowa.md) · [Design system](docs/design-system.md)
 - [Approved icon source and artwork QA](assets/app-icon/README.md)
 - [Issues](https://github.com/t13foundation/apple-deskmate/issues) · [Project](https://github.com/orgs/t13foundation/projects/10)
+
+## License
+
+DeskMate is proprietary software. All rights reserved; use, modification and redistribution require a separate written agreement. See [LICENSE](LICENSE). Third-party dependencies retain their own licenses.
