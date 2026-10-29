@@ -2,7 +2,7 @@
 
 # DeskMate
 
-A native macOS assistant for questions, selected files and services you choose — with answers written on your Mac.
+A native macOS assistant for questions, selected files and services you choose - with answers written on your Mac.
 
 ## Highlights
 
